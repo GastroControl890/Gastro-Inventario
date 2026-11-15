@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gastro-Stock | Control de Inventarios y Costos para Restaurantes</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .brand { font-family: 'Bricolage Grotesque', sans-serif; }
+        .hero-bg {
+            background: linear-gradient(to bottom, rgba(7, 9, 17, 0.8), rgba(7, 9, 17, 0.95)), 
+                        url('https://images.unsplash.com/photo-1556910103-1c02745aae4d?q=80&w=1920&auto=format&fit=crop');
+            background-size: cover;
+            background-position: center;
+        }
+    </style>
+</head>
+<body class="bg-[#070911] text-white antialiased">
+
+    <!-- Hero Section / Portada Estilo Netflix -->
+    <div class="hero-bg min-h-screen flex flex-col justify-between border-b-8 border-slate-900">
+        
+        <!-- Navbar Superior -->
+        <header class="max-w-7xl w-full mx-auto px-6 py-6 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-bold text-xl brand shadow-lg shadow-emerald-500/20">
+                    G
+                </div>
+                <span class="brand text-2xl font-bold tracking-tight text-white">Gastro-Stock</span>
+            </div>
+            
+            <div class="flex items-center gap-4">
+                <div class="hidden sm:flex items-center gap-1.5 bg-slate-800/80 border border-slate-700/60 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-300">
+                    <span>Español (MX)</span>
+                </div>
+                <!-- Botón de Iniciar Sesión (aquí puedes cambiar a tu archivo login.html o app.html según prefieras) -->
+                <a href="login.html" class="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold px-5 py-2 rounded-lg text-sm transition-all shadow-md shadow-emerald-600/30">
+                    Iniciar sesión
+                </a>
+            </div>
+        </header>
+
+        <!-- Contenido Central de Bienvenida -->
+        <main class="max-w-4xl mx-auto px-6 text-center py-20 my-auto">
+            <h1 class="brand text-4xl sm:text-6xl lg:text-7xl font-bold tracking-tight mb-6 leading-tight">
+                Control de costos y mermas ilimitadas y mucho más
+            </h1>
+            <p class="text-lg sm:text-xl text-slate-300 mb-8 max-w-2xl mx-auto font-normal">
+                A partir de $490 al mes. Automatiza tu cocina, estandariza recetas y optimiza insumos cuando quieras.
+            </p>
+            
+            <div class="max-w-xl mx-auto">
+                <p class="text-sm text-slate-300 mb-4 font-medium">
+                    ¿Listo para optimizar tu restaurante? Inicia sesión para acceder al sistema.
+                </p>
+                <div class="flex flex-col sm:flex-row gap-3 justify-center items-center">
+                    <a href="login.html" class="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-8 py-4 rounded-xl transition-all flex items-center justify-center gap-2 shadow-xl shadow-emerald-600/30 text-base">
+                        Acceder a la plataforma
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                    </a>
+                </div>
+            </div>
+        </main>
+
+        <div class="h-10"></div>
+    </div>
+
+    <!-- Sección Informativa / Módulos -->
+    <section class="py-20 px-6 max-w-7xl mx-auto">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+            <div class="bg-slate-900/60 border border-slate-800 p-8 rounded-2xl">
+                <div class="text-emerald-400 text-3xl mb-4 font-bold">📊</div>
+                <h3 class="brand text-xl font-bold mb-2">Costo Neto Real</h3>
+                <p class="text-slate-400 text-sm leading-relaxed">Calcula automáticamente el impacto de las mermas porcentuales sobre el precio de tus insumos por kilo o litro.</p>
+            </div>
+            <div class="bg-slate-900/60 border border-slate-800 p-8 rounded-2xl">
+                <div class="text-amber-400 text-3xl mb-4 font-bold">🍳</div>
+                <h3 class="brand text-xl font-bold mb-2">Subrecetas y Fichas</h3>
+                <p class="text-slate-400 text-sm leading-relaxed">Estandariza tus preparaciones con separación clara entre instrucciones de cocina y costos gerenciales.</p>
+            </div>
+            <div class="bg-slate-900/60 border border-slate-800 p-8 rounded-2xl">
+                <div class="text-sky-400 text-3xl mb-4 font-bold">🛡️</div>
+                <h3 class="brand text-xl font-bold mb-2">Panel Master Seguro</h3>
+                <p class="text-slate-400 text-sm leading-relaxed">Control total de estatus de suscripción y validación de requisiciones con restricciones exclusivas.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="py-12 border-t border-slate-800/80 text-center text-sm text-slate-500 bg-[#05070c]">
+        <p>© 2026 Gastro-Stock. Todos los derechos reservados.</p>
+    </footer>
+
+</body>
+</html>
