@@ -1757,7 +1757,8 @@ function pintarSolicitudes() {
   const rows = SOLS.map((x, i) => {
     const [t, k] = SOL_EST[x.estatus] || [x.estatus || '—', 's'], fecha = String(x.created_at || '').slice(0, 10);
     const acc = `<button class="btn btn-s" onclick="solImprimir(${i})">Imprimir</button> <button class="btn btn-s" onclick="solDescargar(${i})">Descargar</button>` +
-      (!esCuentaMaster() || x.estatus === 'aprobada' || x.estatus === 'rechazada' ? '' : ` ${x.estatus === 'nueva' ? `<button class="btn btn-s" onclick="solEstatus(${i}, 'en_revision')">En revisión</button> ` : ''}<button class="btn btn-p" onclick="solAprobar(${i})">Aprobar</button> <button class="btn btn-s" style="color:#fca5a5;border-color:rgba(248,113,113,.45)" onclick="solRechazar(${i})">Rechazar</button>`);
+      (!esCuentaMaster() || x.estatus === 'aprobada' || x.estatus === 'rechazada' ? '' : ` ${x.estatus === 'nueva' ? `<button class="btn btn-s" onclick="solEstatus(${i}, 'en_revision')">En revisión</button> ` : ''}<button class="btn btn-p" onclick="solAprobar(${i})">Aprobar</button> <button class="btn btn-s" style="color:#fca5a5;border-color:rgba(248,113,113,.45)" onclick="solRechazar(${i})">Rechazar</button>`) +
+      (esCuentaMaster() ? ` <button class="btn btn-s" style="color:#fca5a5;border-color:rgba(248,113,113,.45)" title="Eliminar solicitud" aria-label="Eliminar solicitud de ${esc(x.nombre_comercial)}" onclick="solEliminar(${i})">🗑 Eliminar</button>` : '');
     return `<tr><td class="whitespace-nowrap">${esc(fecha || '—')}</td><td class="font-medium">${esc(x.nombre_comercial)}</td>
       <td>${esc(x.nombre_responsable || '—')}<div class="text-xs text-slate-500">${esc([x.telefono, x.correo].filter(Boolean).join(' · '))}</div>${x.direccion ? `<div class="text-xs text-slate-500">📍 ${esc(x.direccion)}</div>` : ''}</td>
       <td><span class="pill ${x.plan_interes === 'pro' ? 'o' : 's'}">${esc(PLAN_PRECIO[x.plan_interes] != null ? planConPrecio(x.plan_interes) : planLbl(x.plan_interes))}</span></td>
@@ -1778,6 +1779,19 @@ async function solEstatus(i, estatus) {
     if (!r.data || !r.data.length) throw new Error('no se guardó ningún cambio (revisa las políticas RLS de solicitudes)');
     Object.assign(x, r.data[0]); pintarLicencias(); toast(`${x.nombre_comercial}: ${SOL_EST[estatus][0]}`);
   } catch (e) { sbLog('solicitudes.update', e, {id: x.id, estatus}); alert('No se pudo actualizar: ' + errMsg(e)); }
+  finally { SOL_BUSY = false; }
+}
+// Borra definitivamente la solicitud de la tabla `solicitudes` (por id) y refresca la tabla al instante
+async function solEliminar(i) {
+  const x = SOLS[i]; if (!x || SOL_BUSY) return;
+  if (!esCuentaMaster()) return alert('Solo la cuenta master puede eliminar solicitudes.');
+  if (!confirm(`¿Eliminar la solicitud de «${x.nombre_comercial}»?\n\nSe borrará de forma definitiva y no se puede deshacer.`)) return;
+  SOL_BUSY = true;
+  try {
+    const r = await sb.from('solicitudes').delete().eq('id', x.id).select(); if (r.error) throw r.error;
+    if (!r.data || !r.data.length) throw new Error('no se eliminó ningún registro (falta una política RLS de DELETE en solicitudes para la cuenta master)');
+    SOLS = SOLS.filter(s => s.id !== x.id); pintarLicencias(); toast(`Solicitud de «${x.nombre_comercial}» eliminada`);
+  } catch (e) { sbLog('solicitudes.delete', e, {id: x.id}); alert('No se pudo eliminar: ' + errMsg(e)); }
   finally { SOL_BUSY = false; }
 }
 function solAprobar(i) {   // solo marca la solicitud como aprobada/atendida; no crea empresas ni usuarios
