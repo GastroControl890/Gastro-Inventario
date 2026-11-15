@@ -180,8 +180,16 @@ const CAT_DESECH = 'Desechables y Empaques';   // vasos, tapas, empaques (pesta�
 const CAT_TEMP = 'Productos de temporada y pruebas';   // insumos especiales de uso temporal o experimental (pestaña propia en Insumos)
 const CATS = ['Abarrotes & Salsas','Azúcares & Endulzantes','Chocolates, Dulces & Jarabes','Bebidas & Refrescos','Frutas y verduras','Lácteos y quesos','Cárnicos y huevo','Panadería','Preparados',CAT_DESECH,CAT_TEMP,'Elaboraciones internas','Otro'];
 const U_LT = 'lt';   // unidad canónica de litros (antes "L"). Si tu columna unidad_compra exige otro valor, cámbialo solo aquí
-const UNITS = ['kg', U_LT, 'pza'];
-const normUnidad = u => /^(l|lt|lts|litro|litros)$/i.test(String(u || '').trim()) ? U_LT : (u || 'kg');   // homologa el 'L' heredado a 'lt'
+const U_POR = 'porción';   // unidad canónica de porciones (sub-recetas y preparados). Si tu columna unidad_compra exige otro valor, cámbialo solo aquí
+const UNITS = ['kg', 'gr', U_LT, 'ml', 'pza', U_POR];
+const normUnidad = u => {   // homologa variantes heredadas: 'L' -> 'lt', 'g' -> 'gr', 'porcion' -> 'porción'
+  const t = String(u || '').trim().toLowerCase();
+  if (/^(l|lt|lts|litro|litros)$/.test(t)) return U_LT;
+  if (/^(g|gr|grs|gramo|gramos)$/.test(t)) return 'gr';
+  if (/^(ml|mililitro|mililitros)$/.test(t)) return 'ml';
+  if (/^(porcion|porción|porciones|porc)$/.test(t)) return U_POR;
+  return u || 'kg';
+};
 const MOTIVOS = ['Caducidad','Error de preparación','Quemado','Descomposición','Otro'];
 
 function demo() {
@@ -417,8 +425,9 @@ const insumo = id => S.insumos.find(i => i.id === id);
 // Costo neto por unidad de compra aprovechable
 const netoUnidad = i => i.costo / (1 - Math.min(i.merma, 99) / 100);
 // Factor para pasar g/ml a kg/L (pza = 1)
-const factor = i => i.unidad === 'pza' ? 1 : 1000;
-const unidadMenor = i => ({kg: 'gr', [U_LT]: 'ml', pza: 'pza'}[i.unidad] || i.unidad);
+const UNID_FACTOR = {kg: 1000, [U_LT]: 1000, gr: 1, ml: 1, pza: 1, [U_POR]: 1};   // cuántas unidades menores (gr / ml) trae una unidad de compra
+const factor = i => UNID_FACTOR[i.unidad] ?? 1000;
+const unidadMenor = i => ({kg: 'gr', gr: 'gr', [U_LT]: 'ml', ml: 'ml', pza: 'pza', [U_POR]: U_POR}[i.unidad] || i.unidad);
 const costoLinea = l => { const i = insumo(l.id); return i ? l.c / factor(i) * netoUnidad(i) : 0; };
 function calcReceta(r) {
   const subtotal = r.ings.reduce((s, l) => s + costoLinea(l), 0);          // subtotalIngredientes
@@ -564,6 +573,7 @@ function formInsumo(id) {
     ${field('Stock mínimo de alerta', `<input class="inp" id="f_s" type="number" min="0" step="0.1" value="${i.stockMin}">`)}
     ${id ? '' : field('Stock inicial (cantidad que ingresa, en unidad de compra) *', `<input class="inp" id="f_q" type="number" min="0" step="any" placeholder="Ej. 12" inputmode="decimal">`)}
     <div class="sm:col-span-2"><label class="flex items-center gap-2 text-sm text-slate-300"><input type="checkbox" id="f_sub" ${i.sub ? 'checked' : ''}> Elaboración interna (subreceta de costo cerrado: salsa, aderezo, caldo)</label></div>
+    ${convHtml(id)}
   </div>
   <p id="f_err" class="text-red-400 text-sm mt-3"></p>
   <div class="flex justify-end gap-2 mt-4"><button class="btn btn-s" onclick="closeModal()">Cancelar</button><button class="btn btn-p" onclick="saveInsumo('${id || ''}')">Guardar insumo</button></div>`);
@@ -594,8 +604,8 @@ function delInsumo(id) {
 // REGLA: la receta es una ficha técnica y una calculadora de referencia. NUNCA suma ni descuenta existencias físicas
 // (ni al guardarla, ni al editarla, ni al registrar ventas). El stock solo se mueve por entradas/compras y por salidas reales
 // (requisiciones, mermas, cortesías y ajustes por conteo físico).
-const UNID_COMPRA = {gr: 'kg', ml: U_LT, pza: 'pza'};      // unidad de la receta -> unidad de compra del insumo nuevo
-const UNID_RECETA = {kg: 'gr', [U_LT]: 'ml', pza: 'pza'};  // unidad de compra del insumo -> unidad de la receta
+const UNID_COMPRA = {gr: 'kg', ml: U_LT, pza: 'pza', [U_POR]: U_POR};      // unidad de la receta -> unidad de compra del insumo nuevo
+const UNID_RECETA = {kg: 'gr', gr: 'gr', [U_LT]: 'ml', ml: 'ml', pza: 'pza', [U_POR]: U_POR};  // unidad de compra del insumo -> unidad de la receta
 // Nombre comparable: minúsculas, sin acentos y sin espacios de más (evita duplicar "Limón" / "limon  ")
 const normNombre = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase().replace(/\s+/g, ' ');
 const insumoPorNombre = n => { const k = normNombre(n); return k ? S.insumos.find(i => normNombre(i.nombre) === k) : undefined; };
@@ -669,7 +679,7 @@ function formReceta(id) {
   <div class="flex gap-2 mt-4 items-end flex-wrap">
     <div class="flex-1 min-w-[10rem]">${cbxField('Insumo (escribe para buscar o crear)', 'r_i', {free: true, on: 'ingMatch', next: 'r_q', ph: 'Ej. Pechuga de pollo'})}</div>
     <div class="w-28">${field('Cantidad neta', `<input class="inp" id="r_q" type="number" min="0" step="any" onkeydown="if(event.key==='Enter'){event.preventDefault();addIng()}">`)}</div>
-    <div class="w-24">${field('Unidad', `<select class="inp" id="r_u" onchange="ingMatch()">${opts(['gr', 'ml', 'pza'])}</select>`)}</div>
+    <div class="w-24">${field('Unidad', `<select class="inp" id="r_u" onchange="ingMatch()">${opts(['gr', 'ml', 'pza', U_POR])}</select>`)}</div>
     <button class="btn btn-s" onclick="addIng()">Agregar</button>
   </div>
   <p id="r_hint" class="text-xs text-slate-400 mt-1"></p>
@@ -2116,6 +2126,59 @@ function aplicarBulto(k) {
   $('#bk_info').innerHTML = `✔ Aplicado: cantidad <b>${q} ${b.u}</b> y costo unitario <b>${money(u)}</b>. Puedes ajustarlos arriba.`;
 }
 
+/* ---- Calculadora de conversión y rendimiento (formulario de Insumos): compra por caja / bulto y rendimiento por lote ---- */
+function convHtml(id) {
+  const lock = id && insumo(id) ? insumo(id).unidad : '';   // un insumo con existencias conserva su unidad: la calculadora no la cambia
+  const f = (l, k) => field(l, `<input class="inp" id="${k}" type="number" min="0" step="any" inputmode="decimal" oninput="convInfo()">`);
+  return `<details id="cv_box" data-lock="${esc(lock)}" class="sm:col-span-2 rounded-lg border border-slate-700 bg-[#131c26] p-3">
+    <summary class="cursor-pointer text-sm font-medium text-slate-200">🧮 Calculadora de conversión y rendimiento <span class="font-normal text-slate-500">(opcional)</span></summary>
+    <div class="mt-3">${field('¿Qué quieres calcular?', `<select class="inp" id="cv_m" onchange="convModo()"><option value="bulto">Compra por caja / bulto</option><option value="lote">Rendimiento por lote (porciones, piezas, litros o kilos)</option></select>`)}</div>
+    <div id="cv_bulto" class="grid sm:grid-cols-3 gap-3 mt-3">${f('Cantidad de bultos', 'cv_n')}${f('Contenido por bulto (en la unidad de compra)', 'cv_c')}${f('Costo por bulto ($)', 'cv_p')}</div>
+    <div id="cv_lote" class="grid sm:grid-cols-2 gap-3 mt-3 hidden">
+      ${f('Costo total de insumos del lote ($)', 'cv_ci')}${f('Costo de empaques u otros ($, opcional)', 'cv_ce')}
+      ${f('Rendimiento real obtenido', 'cv_q')}
+      ${field('Unidad del rendimiento', `<select class="inp" id="cv_u" onchange="convInfo()">${opts(UNITS, lock || U_POR)}</select>`)}
+      <label class="sm:col-span-2 flex items-center gap-2 text-sm text-slate-300"><input type="checkbox" id="cv_sub"> Marcar como elaboración interna (sub-receta)</label>
+    </div>
+    ${id ? '' : '<label class="mt-3 flex items-center gap-2 text-sm text-slate-300"><input type="checkbox" id="cv_sq" checked> Usar la cantidad calculada como stock inicial</label>'}
+    <p id="cv_info" class="mt-2 text-xs text-slate-400"></p>
+    <p id="cv_err" class="mt-1 text-xs text-red-400" role="alert"></p>
+    <div class="mt-2 flex justify-end"><button type="button" class="btn btn-s" onclick="aplicarConv()">Aplicar</button></div></details>`;
+}
+function convModo() {
+  const lote = $('#cv_m').value === 'lote';
+  $('#cv_bulto').classList.toggle('hidden', lote); $('#cv_lote').classList.toggle('hidden', !lote);
+  if (lote && !$('#cv_box').dataset.lock) $('#cv_u').value = $('#f_u').value;   // arranca con la unidad que ya elegiste arriba
+  convInfo();
+}
+function convCalc() {
+  const lote = $('#cv_m').value === 'lote', num = k => parseFloat($('#' + k).value);
+  if (lote) {
+    const tot = (num('cv_ci') || 0) + (num('cv_ce') || 0), q = num('cv_q'), u = $('#cv_u').value, ok = tot > 0 && q > 0;
+    return {lote, ok, u, qty: ok ? q : 0, total: tot, unit: ok ? tot / q : 0};
+  }
+  const n = num('cv_n'), c = num('cv_c'), p = num('cv_p'), u = $('#f_u').value, ok = n > 0 && c > 0 && p >= 0;
+  return {lote, ok, u, n, c, p, qty: ok ? n * c : 0, unit: ok ? p / c : 0};
+}
+function convInfo() {
+  const b = convCalc(), t = $('#cv_info'), e = $('#cv_err'); if (e) e.textContent = '';
+  if (!t) return;
+  if (!b.ok) { t.textContent = b.lote ? 'Captura el costo del lote y el rendimiento real obtenido, y pulsa Aplicar: se rellenan la unidad, el costo de compra y (si lo eliges) el stock inicial. El rendimiento real ya refleja la merma del proceso: deja la merma estándar en 0 para no contarla dos veces.' : 'Captura los tres datos y pulsa Aplicar: se rellenan el costo de compra y (si lo eliges) el stock inicial.'; return; }
+  t.innerHTML = b.lote ? `${money(b.total)} ÷ ${+b.qty.toFixed(4)} ${esc(b.u)} = costo unitario <b class="text-orange-300">${money(b.unit)} / ${esc(b.u)}</b>`
+    : `${b.n} bulto(s) × ${b.c} ${esc(b.u)} = <b>${+b.qty.toFixed(4)} ${esc(b.u)}</b> · costo unitario <b class="text-orange-300">${money(b.unit)} / ${esc(b.u)}</b>`;
+}
+function aplicarConv() {
+  const b = convCalc(), e = $('#cv_err'), lock = $('#cv_box').dataset.lock;
+  if (!b.ok) return e.textContent = b.lote ? 'Captura el costo total (mayor a 0) y el rendimiento real obtenido (mayor a 0).' : 'Captura bultos (mayor a 0), contenido por bulto (mayor a 0) y costo por bulto.';
+  if (lock && b.u !== lock) return e.textContent = `Este insumo ya está en ${lock}. Expresa el rendimiento en esa unidad para no descuadrar su existencia.`;
+  const q = +b.qty.toFixed(4), u = +b.unit.toFixed(4), sq = $('#f_q');
+  $('#f_u').value = b.u; $('#f_p').value = u;
+  if (sq && $('#cv_sq') && $('#cv_sq').checked) sq.value = q;
+  if (b.lote && $('#cv_sub').checked) $('#f_sub').checked = true;
+  e.textContent = '';
+  $('#cv_info').innerHTML = `✔ Aplicado: unidad <b>${esc(b.u)}</b>, costo de compra <b>${money(u)}</b>${sq && $('#cv_sq') && $('#cv_sq').checked ? `, stock inicial <b>${q} ${esc(b.u)}</b>` : ''}. Puedes ajustarlos arriba.`;
+}
+
 /* ---- Respaldo JSON de los datos operativos ---- */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // Si el respaldo trae ids que no son uuid (p. ej. datos demo antiguos), se convierten para que Supabase los acepte
@@ -2259,7 +2322,7 @@ async function crearSubusuario() {
 const AYUDA = [
   {k: 'insumos', btn: 'Nuevo insumo', sirve: 'Es el catálogo de materias primas. Aquí das de alta cada producto que compras y defines con cuánto stock arranca.',
    campos: [['Nombre y Categoría', 'cómo se llama el insumo y en qué grupo va.'], ['Unidad de compra', 'kg, lt o pza: la unidad en la que lo compras al proveedor.'], ['Costo de compra ($)', 'precio por unidad de compra.'], ['Merma estándar (%)', 'pérdida normal al limpiar o porcionar; con ella se calcula el costo neto real.'], ['Stock mínimo de alerta', 'si el stock baja de este número, el insumo aparece como por agotarse.'], ['Stock inicial', 'obligatorio: lo que hay hoy en bodega (escribe 0 si no hay).']],
-   flujo: ['Entra al menú Insumos.', 'Haz clic en «Nuevo insumo».', 'Captura el nombre, la categoría y la unidad de compra.', 'Captura el costo de compra, la merma estándar y el stock mínimo de alerta.', 'Captura el stock inicial con el que el insumo entra a bodega.', 'Haz clic en «Guardar insumo».'],
+   flujo: ['Entra al menú Insumos.', 'Haz clic en «Nuevo insumo».', 'Captura el nombre, la categoría y la unidad de compra.', 'Captura el costo de compra, la merma estándar y el stock mínimo de alerta. Si compras por caja / bulto, o produces un lote (sub-receta) que rinde porciones, piezas, litros o kilos, abre «Calculadora de conversión y rendimiento» y pulsa «Aplicar» para rellenar la unidad, el costo y el stock inicial.', 'Captura el stock inicial con el que el insumo entra a bodega.', 'Haz clic en «Guardar insumo».'],
    res: 'El insumo queda en el catálogo con su costo neto real y su existencia inicial.',
    nota: 'Para corregirlo usa «Editar» en su fila. «Borrar» no funciona si el insumo ya se usa en una receta.'},
   {k: 'inventario', btn: 'Ver solo insumos por agotarse', sirve: 'Muestra cuánto hay de cada insumo en bodega. Se actualiza con cada entrada, salida, merma, requisición o conteo.',
