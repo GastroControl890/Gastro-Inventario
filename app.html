@@ -115,6 +115,7 @@
       <span id="topBypass" class="pill y hidden" title="El bloqueo se omitió solo en esta sesión">Bloqueo omitido</span>
       <span id="sbEstado" class="pill g hidden" role="status"></span>
       <span id="topUser" class="text-sm text-slate-300"></span>
+      <button class="btn btn-s" id="btnPw" onclick="abrirCambioClave()" title="Cambiar contraseña" aria-label="Cambiar contraseña">🔑 <span class="hidden sm:inline">Cambiar contraseña</span></button>
       <button class="btn btn-s" onclick="salir()">Cerrar sesión</button>
     </div>
     <div id="view" class="p-3 md:p-5 w-full"></div>
@@ -149,7 +150,7 @@
       <p class="text-slate-400 text-sm mb-4">Inicia sesión para continuar.</p>
       <label class="block text-sm text-slate-300 mb-3">Usuario o correo<input id="l_u" type="text" class="inp mt-1" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="Operativo: usuario · Administrador: correo" onkeydown="if(event.key==='Enter')document.getElementById('l_p').focus()"></label>
       <label class="block text-sm text-slate-300">Contraseña<input id="l_p" type="password" class="inp mt-1" autocomplete="current-password" onkeydown="if(event.key==='Enter')entrar()"></label>
-      <div class="flex justify-end mt-2"><button type="button" id="l_forgot" class="rounded text-sm text-slate-400 transition hover:text-orange-300 hover:underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400/60 disabled:opacity-50 disabled:cursor-not-allowed" onclick="olvidePassword()">¿Olvidaste tu contraseña?</button></div>
+      <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 mt-2"><label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer"><input id="l_keep" type="checkbox" checked class="h-4 w-4 accent-orange-500"> Mantener sesión iniciada</label><button type="button" id="l_forgot" class="rounded text-sm text-slate-400 transition hover:text-orange-300 hover:underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-400/60 disabled:opacity-50 disabled:cursor-not-allowed" onclick="olvidePassword()">¿Olvidaste tu contraseña?</button></div>
       <p id="l_info" class="text-emerald-300 text-sm mt-3" role="status"></p>
       <p id="l_err" class="text-red-400 text-sm mt-3" role="alert"></p>
       <button id="l_prop" class="hidden text-xs text-slate-600 hover:text-slate-400 underline mt-1" onclick="abrirPin()">Acceso Propietario</button>
@@ -257,6 +258,7 @@ function normalizarS() {
   S.config = S.config || {nombre: ''};
   S.cortesias = S.cortesias || []; // costos no operativos
   S.auditoria = S.auditoria || []; // historial de auditoría (registros y anulaciones; nunca se borra)
+  S.compras = S.compras || {pres: {}}; S.compras.pres = S.compras.pres || {};   // Estimación de Compras: presentación (caja, saco…) y proveedor habitual por insumo
   S.insumos.forEach(i => { i.unidad = normUnidad(i.unidad); });   // 'L' heredado -> 'lt'
 }
 normalizarS();
@@ -267,7 +269,16 @@ const SB_KEY = 'sb_publishable_SFMyowfMigtZuYo6UI8bcg_cdAIXoE0';
 const SB_TIPO = 'platillo';            // valor de productos_menu.tipo para las recetas nuevas
 const SUB_CAT = 'Elaboraciones internas'; // las subrecetas se identifican por esta categoría
 const RECUP_URL = /(^|[#&?])type=recovery(&|$)/.test(location.hash + location.search);   // llegó desde el correo de recuperación
-const sb = window.supabase ? window.supabase.createClient(SB_URL, SB_KEY) : null;
+// Persistencia de sesión: con «Mantener sesión iniciada» (por defecto) la sesión vive en localStorage; si se desmarca, en sessionStorage (expira al cerrar la pestaña o el navegador)
+const AUTH_KEY_RE = /^sb-.+-(auth-token|code-verifier)/;
+let MANTENER = (() => { try { return !Object.keys(sessionStorage).some(k => AUTH_KEY_RE.test(k)); } catch (e) { return true; } })();   // tras recargar, la sesión sigue en el almacenamiento donde se guardó
+const authStore = {
+  getItem: k => { try { const v = sessionStorage.getItem(k); return v !== null ? v : localStorage.getItem(k); } catch (e) { return null; } },
+  setItem: (k, v) => { try { const [a, b] = MANTENER ? [localStorage, sessionStorage] : [sessionStorage, localStorage]; a.setItem(k, v); b.removeItem(k); } catch (e) {} },
+  removeItem: k => { try { localStorage.removeItem(k); sessionStorage.removeItem(k); } catch (e) {} }
+};
+function purgarSesionLocal() { try { [localStorage, sessionStorage].forEach(st => Object.keys(st).filter(k => AUTH_KEY_RE.test(k)).forEach(k => st.removeItem(k))); } catch (e) {} }
+const sb = window.supabase ? window.supabase.createClient(SB_URL, SB_KEY, {auth: {storage: authStore, persistSession: true, autoRefreshToken: true, detectSessionInUrl: true}}) : null;
 let AUTH_UID = null, DATOS_UID = null, SNAP = null, SYNCING = false, SYNC_DIRTY = false, SYNC_T = null, AVISO_T = 0;
 const LSK = id => KEY + ':' + id, PENDK = id => 'gastrocost_pend:' + id;   // respaldo local por usuario + marca de cambios sin subir
 const uuidv4 = () => (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID()
@@ -482,7 +493,7 @@ const UI = {q: '', cat: '', soloBajos: false, conteo: {}, cf: {}, rendPer: 'mes'
 
 /* ---- REGISTRO DE MÓDULOS POR PLAN ----
    Plan BÁSICO: control estricto de inventario (stock actual, entradas/compras, salidas/mermas y conteos físicos).
-   Plan PRO:    Auditoría de Inventario + Recepción de Proveedor (control administrativo) + Recetas y Rendimiento Estimado (+ un módulo reservado).
+   Plan PRO:    Auditoría de Inventario + Recepción de Proveedor + Estimación de Compras + Recetas y Rendimiento Estimado (control administrativo).
    El Master ve todo. Un cliente con plan básico ve los módulos Pro bloqueados (insignia PRO); con plan pro quedan abiertos.
    k = clave · t = nombre en el menú · tt = título completo · v = vista · roles = perfiles que lo ven · pro = exige plan Pro. */
 const MODULOS = [
@@ -496,8 +507,9 @@ const MODULOS = [
   // ---------- PLAN PRO ----------
   {k: 'auditoria', ico: '🔍', t: 'Auditoría de Inventario', tt: 'Auditoría de Inventario',         v: () => vAuditoria(), roles: ['superadmin', 'cliente'],           pro: true},
   {k: 'recepciones', ico: '📥', t: 'Recepción de Proveedor',  tt: 'Recepción de Proveedor',         v: () => vRecepciones(), roles: ['superadmin', 'cliente'],          pro: true},
+  {k: 'estimacion', ico: '🧮', t: 'Estimación de Compras', tt: 'Estimación de Compras',        v: () => vEstimacion(), roles: ['superadmin', 'cliente'],       pro: true},
   {k: 'recetas',   ico: '📋', t: 'Recetas y Rendimiento',   tt: 'Recetas y Rendimiento Estimado', v: () => vRecetas(),   roles: ['superadmin', 'cliente', 'cocina'], pro: true},
-  // ► ESPACIO RESERVADO · 3er módulo Pro. Para agregarlo basta una línea aquí, por ejemplo:
+  // ► Para agregar otro módulo Pro basta una línea aquí, por ejemplo:
   //   {k: 'nuevo', ico: '✨', t: 'Nombre corto', tt: 'Nombre completo', v: () => vNuevo(), roles: ['superadmin', 'cliente'], pro: true},
   //   y definir su función vNuevo(). El menú, el bloqueo por plan y el acceso por perfil se generan solos desde este registro.
   // ---------- SISTEMA ----------
@@ -1108,7 +1120,7 @@ function vAuditoria() {
 let SES = null;
 // Perfiles: 'superadmin' (Master), 'cliente' (dueño / encargado) y 'cocina' (operativo). El acceso por módulo vive en MODULOS (sección 3).
 const esAdminRol = () => !!SES && (SES.rol === 'superadmin' || SES.rol === 'cliente');   // ve costos y precios
-function mostrarLogin(on) { const l = $('#login'); l.classList.toggle('hidden', !on); l.classList.toggle('flex', on); if (on) { $('#l_u').value = ''; $('#l_p').value = ''; $('#l_err').textContent = ''; $('#l_info').textContent = ''; $('#l_prop').classList.add('hidden'); LOGIN_BLOQ = null; } }
+function mostrarLogin(on) { const l = $('#login'); l.classList.toggle('hidden', !on); l.classList.toggle('flex', on); if (on) { $('#l_u').value = ''; $('#l_p').value = ''; $('#l_keep').checked = true; $('#l_err').textContent = ''; $('#l_info').textContent = ''; $('#l_prop').classList.add('hidden'); LOGIN_BLOQ = null; } }
 // rol de perfiles.rol -> rol de la app. Solo 'master' es superadmin; cualquier otro valor se trata como cliente
 // 'almacen' y 'barra' son perfiles operativos (igual que cocina); 'baja' = acceso desactivado por el administrador del restaurante
 const rolApp = r => { r = String(r || '').trim().toLowerCase(); return r === 'master' ? 'superadmin' : ['baja', 'suspendido', 'inactivo', 'bloqueado'].includes(r) ? 'sinacceso' : ['cocina', 'operativo', 'empleado', 'staff', 'almacen', 'barra'].includes(r) ? 'cocina' : 'cliente'; };
@@ -1171,6 +1183,7 @@ async function entrar() {
   if (!raw || !pass) return err('Escribe tu usuario (o correo) y tu contraseña.');
   if (raw.includes('@') ? !EMAIL_RE.test(email) : !USER_RE.test(normUsuario(raw))) return err('Usuario o correo no válido.');
   err('Entrando…');
+  MANTENER = $('#l_keep').checked; purgarSesionLocal();   // marcada → localStorage; desmarcada → sessionStorage
   let r; try { r = await sb.auth.signInWithPassword({email, password: pass}); } catch (e) { sbLog('auth.signInWithPassword', e, {email}); return err('Sin conexión con el servidor. Intenta de nuevo.'); }
   if (r.error || !r.data || !r.data.user) return err(r.error && /invalid|credentials/i.test(r.error.message) ? 'Usuario/correo o contraseña incorrectos.' : ((r.error && r.error.message) || 'No se pudo iniciar sesión.'));
   const us = await construirSesion(r.data.user); AUTH_UID = us.uid;
@@ -1625,7 +1638,7 @@ function pintarRestaurantes() {
     (EMP_ERR ? `<p class="text-red-300 text-sm mb-3" role="alert">No se pudo leer la tabla empresas: ${esc(EMP_ERR)}. Revisa tu conexión y las políticas RLS en Supabase.</p>` : '') +
     `<div class="grid grid-cols-3 gap-3 mb-4 max-w-xl">${card('Activas', n('Activa'), 'text-emerald-300')}${card('Vencidas', n('Vencida'), 'text-orange-300')}${card('Suspendidas', n('Suspendida'), 'text-red-300')}</div>` +
     table(['Restaurante', 'Plan', 'Contacto', 'Estatus', 'Vencimiento', 'Días', ''], rows) +
-    `<p class="text-xs text-slate-500 mt-3">Los usuarios de cada restaurante se vinculan con perfiles.empresa_id (usa «Copiar ID»). Un usuario cuya empresa esté suspendida o vencida ve la pantalla de licencia al iniciar sesión. El plan «Pro» habilita Auditoría de Inventario y Recetas y Rendimiento Estimado.</p>`;
+    `<p class="text-xs text-slate-500 mt-3">Los usuarios de cada restaurante se vinculan con perfiles.empresa_id (usa «Copiar ID»). Un usuario cuya empresa esté suspendida o vencida ve la pantalla de licencia al iniciar sesión. El plan «Pro» habilita el Paquete Pro: Auditoría de Inventario, Recepción de Proveedor, Estimación de Compras y Recetas y Rendimiento Estimado.</p>`;
 }
 // Cambio de una sola columna con un clic (estatus o vencimiento)
 async function empCambiar(i, cambios, texto) {
@@ -2350,6 +2363,126 @@ async function crearSubusuario() {
   finally { EQ_BUSY = false; const b = $('#eq_ok'); if (b) b.disabled = false; }
 }
 
+/* ============ 5b. MÓDULO PRO: ESTIMACIÓN DE COMPRAS ============ */
+// Planeación de compras: qué falta, cuánto cuesta y a quién pedírselo. NO mueve existencias ni genera movimientos.
+// Las presentaciones de compra (caja, saco, garrafa…) y el proveedor habitual se guardan en S.compras, junto con el respaldo de la cuenta (no cambia las tablas de Supabase).
+const EC = {modo: 'minimo', proy: {}, adj: {}};
+const EC_SINPROV = 'Sin proveedor';
+const EC_PRES = ['Caja', 'Saco', 'Bulto', 'Garrafa', 'Paquete', 'Costal', 'Bolsa', 'Charola'];
+const ecPresDe = id => (S.compras && S.compras.pres && S.compras.pres[id]) || null;
+const ecFmt = n => +(+n || 0).toFixed(3);
+// Último costo de compra y proveedor: de la entrada más reciente (recepción o entrada directa); sin entradas, el costo vigente del catálogo
+function ecUltimo(i) {
+  const e = (S.movs || []).filter(m => m.insumoId === i.id && m.tipo === 'Entrada' && !m.anulado && m.cant > 0 && m.total > 0).sort((a, b) => (a.ts || 0) - (b.ts || 0)).pop();
+  return {costo: e ? e.total / e.cant : (+i.costo || 0), prov: e && e.prov ? String(e.prov).trim() : ''};
+}
+// Consumo bruto (con merma estándar) de cada insumo para las porciones proyectadas, en unidad de compra
+function ecNeed() {
+  const need = {};
+  S.recetas.forEach(r => { const n = +EC.proy[r.id] || 0; if (n > 0) r.ings.forEach(l => { if (insumo(l.id)) need[l.id] = (need[l.id] || 0) + brutoPorPorcion(r, l) * n; }); });
+  return need;
+}
+// Reserva en $ de condimentos / sazón de las recetas proyectadas (no es un insumo del catálogo)
+const ecSazon = () => EC.modo !== 'recetas' ? 0 : S.recetas.reduce((s, r) => s + (+EC.proy[r.id] > 0 ? calcReceta(r).sazon / (r.porciones || 1) * EC.proy[r.id] : 0), 0);
+function ecRows() {
+  const base = [];
+  if (EC.modo === 'minimo') S.insumos.forEach(i => { if (!i.sub && i.stockMin > 0 && i.stock <= i.stockMin) base.push({i, req: i.stockMin * 2, falt: i.stockMin * 2 - i.stock}); });   // nivel óptimo = 2 × mínimo (igual que la Sugerencia de Inventario)
+  else { const need = ecNeed(); Object.keys(need).forEach(id => { const i = insumo(id), falt = need[id] - i.stock; if (!i.sub && falt > 1e-9) base.push({i, req: need[id], falt}); }); }
+  return base.map(b => {
+    const i = b.i, u = ecUltimo(i), p = ecPresDe(i.id), cont = p && +p.cont > 0 ? +p.cont : 0;
+    const sug = cont ? Math.ceil(b.falt / cont - 1e-9) : i.unidad === 'pza' ? Math.ceil(b.falt - 1e-9) : +b.falt.toFixed(2);
+    const q = EC.adj[i.id] != null ? EC.adj[i.id] : sug, qb = cont ? q * cont : q;
+    return {...b, p, cont, nom: p && p.nom ? p.nom : 'Presentación', prov: (p && p.prov ? String(p.prov).trim() : '') || u.prov || EC_SINPROV, costoU: u.costo, sug, q, qb, costo: qb * u.costo};
+  }).sort((a, b) => a.i.nombre.localeCompare(b.i.nombre, 'es'));
+}
+function ecGrupos(rows) {
+  const gr = {}; rows.forEach(r => (gr[r.prov] = gr[r.prov] || []).push(r));
+  return {gr, provs: Object.keys(gr).sort((a, b) => a === EC_SINPROV ? 1 : b === EC_SINPROV ? -1 : a.localeCompare(b, 'es'))};
+}
+const ecQTxt = r => r.cont ? `${esc(r.nom.toLowerCase())}(s) = ${ecFmt(r.qb)} ${esc(r.i.unidad)}` : esc(r.i.unidad);
+const ecCostoTxt = r => r.costoU > 0 ? money(r.costo) : '<span class="pill y">Sin costo</span>';
+
+function vEstimacion() {
+  const modos = [['minimo', 'Por stock mínimo'], ['recetas', 'Por proyección de recetas']];
+  $('#view').innerHTML = head('Estimación de Compras', 'Qué comprar y cuánto costará: por stock mínimo o por la producción que planeas.', `<button class="btn btn-s" onclick="ecCopiar(-1)">Copiar todo el pedido</button>`) +
+    `<div class="flex flex-wrap gap-2 mb-3" role="tablist">${modos.map(([k, t]) => `<button role="tab" class="btn pilltab ${EC.modo === k ? 'btn-p' : 'btn-s'}" onclick="ecModo('${k}')">${t}</button>`).join('')}</div>` +
+    `<p class="text-xs text-slate-400 mb-3">Solo es una estimación: <b>no modifica el inventario</b>. Los costos usan el último precio de compra registrado (Recepción de Proveedor o Entrada de insumo).</p>` +
+    (EC.modo === 'recetas' ? ecRecetasUI() : '') + '<div id="ec_res"></div>';
+  ecPintar();
+}
+function ecRecetasUI() {
+  if (!S.recetas.length) return '<p class="text-slate-400 text-sm mb-3">Aún no hay recetas. Créalas en Recetas y Rendimiento.</p>';
+  return `<div class="bg-[#0b0f19] border border-slate-800 rounded-2xl p-3 mb-4"><h2 class="brand font-bold">Platillos a producir</h2><p class="text-xs text-slate-400 mb-2">Captura las porciones que planeas de cada receta; deja vacías las que no entren.</p>
+    <div class="grid sm:grid-cols-2 gap-2">${S.recetas.map(r => `<label class="flex items-center justify-between gap-3 bg-[#070911] border border-slate-800 rounded-xl px-3 py-2 text-sm"><span>${esc(r.nombre)}<span class="block text-xs text-slate-500">${esc(r.categoria)} · rinde ${r.porciones}</span></span><input class="inp w-24" type="number" min="0" step="1" value="${EC.proy[r.id] || ''}" placeholder="0" oninput="ecProy('${r.id}', this.value)" aria-label="Porciones de ${esc(r.nombre)}"></label>`).join('')}</div></div>`;
+}
+function ecModo(k) { EC.modo = k; EC.adj = {}; vEstimacion(); }
+function ecProy(id, v) { const n = parseFloat(v); EC.proy[id] = n > 0 ? n : 0; EC.adj = {}; ecPintar(); }   // solo repinta el resultado: el campo que se escribe no pierde el foco
+function ecPintar() {
+  const rows = ecRows(), {gr, provs} = ecGrupos(rows), saz = ecSazon(), tot = rows.reduce((a, r) => a + r.costo, 0) + saz;
+  const chip = (l, v, id, c) => `<div class="bg-[#0b0f19] border border-slate-800 rounded-2xl px-3 py-1.5 leading-tight"><div class="text-slate-400 text-xs">${l}</div><div${id ? ` id="${id}"` : ''} class="brand text-xl font-bold ${c}">${v}</div></div>`;
+  let h;
+  if (!rows.length) h = `<div class="rounded-2xl border border-slate-800 bg-[#0b0f19] p-6 text-center text-slate-400">${EC.modo === 'minimo' ? '✅ Ningún insumo está en su stock mínimo o por debajo de él.' : S.recetas.some(r => EC.proy[r.id] > 0) ? '✅ El inventario actual alcanza para la producción proyectada: no hay nada que comprar.' : 'Captura las porciones a producir para calcular el faltante.'}</div>`;
+  else h = `<div class="flex flex-wrap gap-3 mb-4">${chip('Insumos a comprar', rows.length, '', 'text-white')}${chip('Presupuesto estimado', money(tot), 'ec_tot', 'text-emerald-300')}${saz > 0 ? chip('Incluye condimentos / sazón', money(saz), '', 'text-orange-300') : ''}</div>` +
+    provs.map((p, k) => `<section class="bg-[#0b0f19] border border-slate-800 rounded-2xl p-3 mb-3"><div class="flex flex-wrap items-center gap-2 mb-2"><h2 class="brand font-bold">🚚 ${esc(p)}</h2><span class="pill g" id="ec_sub_${k}">${money(gr[p].reduce((a, r) => a + r.costo, 0))}</span><button class="btn btn-s ml-auto" onclick="ecCopiar(${k})">Copiar pedido</button></div>` +
+      table(['Insumo', 'Stock', 'Faltante', 'Presentación', 'A pedir', 'Costo est.'], gr[p].map(ecFila).join('')) + '</section>').join('');
+  if (EC.modo === 'recetas') {
+    const need = ecNeed(), sub = S.insumos.filter(i => i.sub && need[i.id] > i.stock + 1e-9);
+    if (sub.length) h += `<p class="text-xs text-slate-400 mt-2">Elaboraciones internas por producir (no se compran): ${sub.map(i => `${esc(i.nombre)} (faltan ${ecFmt(need[i.id] - i.stock)} ${esc(i.unidad)})`).join(' · ')}.</p>`;
+    if (saz > 0) h += `<p class="text-xs text-slate-400 mt-1">La reserva de condimentos / sazón es el % de cada receta aplicado a su costo; se suma al presupuesto pero no es un insumo a pedir.</p>`;
+  }
+  $('#ec_res').innerHTML = h;
+}
+function ecFila(r) {
+  const i = r.i, u = esc(i.unidad);
+  return `<tr><td class="font-medium">${esc(i.nombre)}<div class="text-xs text-slate-500">Último costo: ${r.costoU > 0 ? money(r.costoU) + ' / ' + u : '—'}</div></td>
+    <td>${ecFmt(i.stock)} ${u}<div class="text-xs text-slate-500">${EC.modo === 'minimo' ? 'mínimo ' + ecFmt(i.stockMin) + ' ' + u : 'requiere ' + ecFmt(r.req) + ' ' + u}</div></td>
+    <td class="font-semibold text-orange-300">${ecFmt(r.falt)} ${u}</td>
+    <td>${r.cont ? `${esc(r.nom)} de ${ecFmt(r.cont)} ${u}` : '<span class="text-slate-500">Sin definir</span>'}<div><button class="btn btn-s mt-1" onclick="ecFormPres('${i.id}')">${r.cont ? 'Editar' : 'Definir'}</button></div></td>
+    <td><input class="inp w-24" type="number" min="0" step="${r.cont || i.unidad === 'pza' ? 1 : 'any'}" value="${ecFmt(r.q)}" oninput="ecAdj('${i.id}', this.value)" aria-label="Cantidad a pedir de ${esc(i.nombre)}"><div class="text-xs text-slate-400 mt-1" id="ec_q_${i.id}">${ecQTxt(r)}</div></td>
+    <td class="font-semibold" id="ec_c_${i.id}">${ecCostoTxt(r)}</td></tr>`;
+}
+// Ajuste manual: actualiza solo los totales (sin repintar la tabla) para no perder el foco al escribir
+function ecAdj(id, v) { const n = parseFloat(v); EC.adj[id] = isNaN(n) || n < 0 ? 0 : n; ecRefrescar(); }
+function ecRefrescar() {
+  const rows = ecRows(), {gr, provs} = ecGrupos(rows);
+  rows.forEach(r => { const c = $('#ec_c_' + r.i.id), q = $('#ec_q_' + r.i.id); if (c) c.innerHTML = ecCostoTxt(r); if (q) q.innerHTML = ecQTxt(r); });
+  provs.forEach((p, k) => { const s = $('#ec_sub_' + k); if (s) s.textContent = money(gr[p].reduce((a, r) => a + r.costo, 0)); });
+  const t = $('#ec_tot'); if (t) t.textContent = money(rows.reduce((a, r) => a + r.costo, 0) + ecSazon());
+}
+function ecFormPres(id) {
+  const i = insumo(id); if (!i) return; const p = ecPresDe(id) || {}, provs = [...new Set((S.recepciones || []).map(r => r.proveedor).filter(Boolean))];
+  openModal(`<h2 class="brand text-xl font-bold mb-1">Presentación de compra</h2><p class="text-slate-400 text-sm mb-3">${esc(i.nombre)} · unidad base: ${esc(i.unidad)}</p>
+  <div class="grid sm:grid-cols-2 gap-3">
+    ${field('Presentación', `<select class="inp" id="ep_n">${EC_PRES.map(x => `<option${(p.nom || 'Caja') === x ? ' selected' : ''}>${x}</option>`).join('')}</select>`)}
+    ${field('Contenido por presentación (' + esc(i.unidad) + ')', `<input class="inp" id="ep_c" type="number" min="0" step="any" value="${p.cont || ''}" placeholder="Ej. 10">`)}
+    <div class="sm:col-span-2">${field('Proveedor habitual (opcional)', `<input class="inp" id="ep_p" list="ep_dl" value="${esc(p.prov || '')}" placeholder="Vacío = proveedor de la última compra"><datalist id="ep_dl">${provs.map(x => `<option value="${esc(x)}">`).join('')}</datalist>`)}</div></div>
+  <p id="ep_err" class="text-red-400 text-sm mt-2" role="alert"></p>
+  <div class="flex justify-end gap-2 mt-4"><button class="btn btn-s" onclick="closeModal()">Cancelar</button>${p.nom || p.prov ? `<button class="btn btn-s" onclick="ecQuitarPres('${id}')">Quitar</button>` : ''}<button class="btn btn-p" onclick="ecGuardarPres('${id}')">Guardar</button></div>`);
+}
+function ecGuardarPres(id) {
+  const cont = parseFloat($('#ep_c').value), prov = $('#ep_p').value.trim(), nom = $('#ep_n').value;
+  if (!(cont > 0) && !prov) return $('#ep_err').textContent = 'Captura el contenido por presentación (mayor a 0) o el proveedor habitual.';
+  S.compras = S.compras || {pres: {}}; (S.compras.pres = S.compras.pres || {})[id] = {nom, cont: cont > 0 ? cont : 0, prov};
+  delete EC.adj[id]; save(); closeModal(); ecPintar(); toast('Presentación guardada');
+}
+function ecQuitarPres(id) { if (S.compras && S.compras.pres) delete S.compras.pres[id]; delete EC.adj[id]; save(); closeModal(); ecPintar(); toast('Presentación quitada'); }
+const ecLinea = r => `• ${r.i.nombre}: ` + (r.cont ? `${ecFmt(r.q)} ${r.nom.toLowerCase()}(s) (${ecFmt(r.qb)} ${r.i.unidad})` : `${ecFmt(r.qb)} ${r.i.unidad}`);
+function ecTexto(k) {
+  const {gr, provs} = ecGrupos(ecRows().filter(r => r.q > 0)), est = (S.config && S.config.nombre) || 'GASTRO INVENTARIO';
+  return (k < 0 ? provs : [provs[k]].filter(Boolean)).map(p => `${p === EC_SINPROV ? 'PEDIDO' : 'PEDIDO A ' + p.toUpperCase()}\n${est} · ${today()}\n${gr[p].map(ecLinea).join('\n')}`).join('\n\n');
+}
+function ecCopiar(k) {
+  const t = ecTexto(k); if (!t) return toast('No hay nada que copiar');
+  const ok = () => toast('Pedido copiado'), alt = () => { const a = document.createElement('textarea'); a.value = t; document.body.appendChild(a); a.select(); try { document.execCommand('copy'); ok(); } catch (e) { toast('No se pudo copiar'); } a.remove(); };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(ok, alt); else alt();
+}
+function htmlEstimacion() {
+  const rows = ecRows().filter(r => r.q > 0).sort((a, b) => a.prov.localeCompare(b.prov, 'es')), saz = ecSazon(), tot = rows.reduce((a, r) => a + r.costo, 0);
+  return docHtml('Estimación de Compras', '', ahora(), `<p><b>Método:</b> ${EC.modo === 'minimo' ? 'Por stock mínimo' : 'Proyección por recetas'}</p>` +
+    tp(['Proveedor', 'Insumo', 'Faltante', 'Presentación', 'A pedir', 'Costo unit.', 'Costo est.'], rows.map(r => filaImp([esc(r.prov), esc(r.i.nombre), ecFmt(r.falt) + ' ' + esc(r.i.unidad), r.cont ? esc(r.nom) + ' de ' + ecFmt(r.cont) + ' ' + esc(r.i.unidad) : '—', r.cont ? ecFmt(r.q) + ' ' + esc(r.nom.toLowerCase()) + '(s)' : ecFmt(r.qb) + ' ' + esc(r.i.unidad), r.costoU > 0 ? money(r.costoU) : 'Sin costo', money(r.costo)])).join('') || sinDatos(7, 'Sin compras por estimar.')) +
+    `<p><b>Total estimado de insumos:</b> ${money(tot)}</p>` + (saz > 0 ? `<p><b>Reserva de condimentos / sazón:</b> ${money(saz)} · <b>Presupuesto total:</b> ${money(tot + saz)}</p>` : ''), ['Elaboró', 'Autoriza']);
+}
+
 /* ============ 24. AYUDA / MANUAL DE USUARIO ============ */
 // Manual solo de texto: cada módulo explica para qué sirve, cómo llenarlo y su flujo paso a paso.
 const AYUDA = [
@@ -2357,21 +2490,17 @@ const AYUDA = [
    campos: [['Nombre y Categoría', 'cómo se llama el insumo y en qué grupo va.'], ['Unidad de compra', 'kg, lt o pza: la unidad en la que lo compras al proveedor.'], ['Costo de compra ($)', 'precio por unidad de compra.'], ['Merma estándar (%)', 'pérdida normal al limpiar o porcionar; con ella se calcula el costo neto real.'], ['Stock mínimo de alerta', 'si el stock baja de este número, el insumo aparece como por agotarse.'], ['Stock inicial', 'obligatorio: lo que hay hoy en bodega (escribe 0 si no hay).']],
    flujo: ['Entra al menú Insumos.', 'Haz clic en «Nuevo insumo».', 'Captura el nombre, la categoría y la unidad de compra.', 'Captura el costo de compra, la merma estándar y el stock mínimo de alerta. Si compras por caja / bulto, o produces un lote (sub-receta) que rinde porciones, piezas, litros o kilos, abre «Calculadora de conversión y rendimiento» y pulsa «Aplicar» para rellenar la unidad, el costo y el stock inicial.', 'Captura el stock inicial con el que el insumo entra a bodega.', 'Haz clic en «Guardar insumo».'],
    res: 'El insumo queda en el catálogo con su costo neto real y su existencia inicial.',
-   nota: 'Para corregirlo usa «Editar» en su fila. «Borrar» no funciona si el insumo ya se usa en una receta.'},
+   nota: 'Para corregirlo usa «Editar» en su fila. «Borrar» no funciona si el insumo ya se usa en una receta. La unidad de compra, el costo y el stock mínimo que captures aquí son la base de Inventario, Recepción de Proveedor, Recetas y Rendimiento y Estimación de Compras.'},
   {k: 'inventario', btn: 'Ver solo insumos por agotarse', sirve: 'Muestra cuánto hay de cada insumo en bodega. Se actualiza con cada entrada, salida, merma, requisición o conteo.',
    campos: [['Stock actual', 'existencia vigente, en la unidad de compra.'], ['Stock mínimo y Estatus', 'te avisan cuando un insumo llegó al mínimo o bajó de él.'], ['Ver solo insumos por agotarse', 'casilla que filtra la lista y sugiere cuánto comprar.'], ['Movimientos recientes', '(administrador) historial de entradas, salidas, mermas y ajustes con su motivo.'], ['+ Entrada de insumo / − Salida directa', '(administrador) para registrar una compra directa o una salida puntual.']],
    flujo: ['Entra al menú Inventario.', 'Compara la columna Stock actual contra el Stock mínimo de cada insumo.', 'Marca «Ver solo insumos por agotarse» para dejar en pantalla únicamente lo que necesita atención.', 'Lee la columna Sugerencia, que indica cuánto comprar de cada insumo.'],
-   res: 'Tienes a la vista las existencias y lo que toca reponer.'},
+   res: 'Tienes a la vista las existencias y lo que toca reponer.',
+   nota: 'La Sugerencia indica la cantidad para llegar al doble del stock mínimo. Para armar el pedido por proveedor, con presentaciones de compra y presupuesto, usa Estimación de Compras (Paquete Pro).'},
   {k: 'conteo', btn: 'Aplicar ajustes al inventario', sirve: 'Sirve para contar físicamente la mercancía y dejar el stock del sistema igual a lo que realmente hay.',
    campos: [['Fecha del conteo', 'el día en que contaste.'], ['Conteo físico', 'escribe lo que hay en la unidad indicada; deja vacío lo que no contaste.'], ['Diferencia', 'la calcula el sistema contra el stock actual.'], ['Limpiar', 'borra lo capturado para empezar de nuevo.']],
    flujo: ['Entra al menú Conteo Físico.', 'Elige la fecha del conteo.', 'Captura el conteo físico de cada insumo que contaste.', 'Revisa la columna Diferencia para ver faltantes y sobrantes contra el stock del sistema.', 'Haz clic en «Aplicar ajustes al inventario».', 'Confirma el aviso que indica que el ajuste es definitivo.'],
    res: 'El stock queda igual a lo contado y cada ajuste se guarda en Movimientos.',
    nota: 'Solo se ajustan los insumos que captures; el resto no se toca.'},
-  {k: 'recepciones', btn: 'Nueva recepción', sirve: 'Registra las entradas de mercancía por proveedor, compara lo pedido contra lo recibido y deja el costo actualizado. Incluye una calculadora para facturas por caja o bulto.',
-   campos: [['Proveedor', 'obligatorio.'], ['Factura / remisión', 'opcional, para identificar la entrega.'], ['Fecha', 'día de la entrega.'], ['Motivo / observaciones', 'obligatorio: por qué se recibe o qué pasó con la entrega; queda guardado en el historial de auditoría.'], ['Insumo', 'se busca escribiendo en el catálogo.'], ['¿Compras por caja / bulto?', 'opción desplegable para cuando el proveedor factura por cajas, bultos o presentaciones cerradas. Captura la cantidad de bultos, el contenido por bulto y el costo por bulto, y pulsa «Aplicar»: el sistema convierte a la unidad base de compra y rellena la cantidad y el costo unitario.'], ['Pedido, Recibido y Cost. unit. ($)', 'cantidades en unidad de compra y costo por unidad.'], ['Agregar', 'indispensable: con este clic el producto baja y se lista en la tabla de la bitácora.'], ['Confirmar recepción', 'guarda toda la factura y abre el comprobante.']],
-   flujo: ['Acceso: entra al menú Recepción de Proveedor y haz clic en «Nueva recepción».', 'Datos generales: captura el proveedor, la factura / remisión y la fecha.', 'Captura y adición por insumo: busca el insumo en el catálogo. Si el proveedor te factura por cajas, bultos o presentaciones cerradas, despliega «¿Compras por caja / bulto?», ingresa las cajas que llegaron y el sistema hace la conversión automática a la unidad base de compra. Captura la cantidad Recibido y el Cost. unit. Haz clic en «Agregar» para que el producto baje y se liste en la tabla de la bitácora. Repite este proceso por cada producto de la factura.', 'Confirmación global: revisa que todos los insumos de la tabla estén correctos y presiona «Confirmar recepción».'],
-   res: 'Lo recibido se suma al stock, se actualiza el costo promedio y se genera un folio REC con comprobante para imprimir.',
-   nota: 'Si no haces clic en «Agregar», el insumo no entra a la tabla y no se registra. En la lista ves el proveedor, el total recibido y la diferencia de cada entrega.'},
   {k: 'requisiciones', btn: 'Nueva Requisición / Despacho a Producción', sirve: 'Es el vale con el que almacén entrega insumos a cocina o barra. Puedes generar todos los que necesites en el día.',
    campos: [['Etiqueta del vale', 'Mañana, Tarde, Evento o la que quieras.'], ['Motivo de salida', 'Producción Cocina, Producción Barra o Merma / Desperdicio.'], ['Observación / justificación', 'obligatoria: explica el despacho; queda en el vale y en el historial de auditoría.'], ['Insumo y Cantidad', 'en gr, ml o pza.'], ['Agregar', 'se pulsa por cada insumo del vale.'], ['Despachar vale', 'guarda y emite el vale.']],
    flujo: ['Entra al menú Requisiciones y haz clic en «Nueva Requisición / Despacho a Producción».', 'Escribe la etiqueta del vale y elige el motivo de salida.', 'Busca un insumo, captura la cantidad y haz clic en «Agregar». Repite por cada insumo del vale.', 'Revisa que la lista del vale esté completa.', 'Haz clic en «Despachar vale».'],
@@ -2387,19 +2516,46 @@ const AYUDA = [
    flujo: ['Entra al menú Cortesías y haz clic en el botón de registro.', 'Escribe el concepto en texto libre.', 'Elige el tipo de concepto y anota la cantidad.', 'Anota el motivo y quién lo autorizó (obligatorio).', 'Haz clic en «Registrar».'],
    res: 'Queda en la bitácora del día y se suma a los contadores por tipo.',
    nota: 'En Plan Básico es un registro informativo: no descuenta stock ni calcula costos. Con Plan Pro se registra por insumo (descuenta stock y calcula el costo) o por platillo con receta (calcula el desglose y el costo, sin descontar stock). Cada registro muestra su modalidad.'},
-  {k: 'auditoria', btn: 'Captura de conteo físico (y «Limpiar conteo»)', sirve: 'Compara lo que el sistema dice que debería haber (teórico) contra lo que realmente hay, para detectar faltantes y fugas de dinero.',
+  {k: 'auditoria', btn: 'Captura de conteo físico (y «Limpiar conteo»)', sirve: 'Módulo del Paquete Pro. Compara lo que el sistema dice que debería haber (teórico) contra lo que realmente hay, para detectar faltantes y fugas de dinero.',
    campos: [['Stock teórico', 'lo calcula el sistema.'], ['Conteo físico', 'lo que cuentas en bodega, por insumo.'], ['Diferencia', 'teórico contra físico.'], ['Fuga en $', 'valor de la diferencia.'], ['Fuga total detectada', 'suma de todas las fugas, arriba a la derecha.']],
    flujo: ['Entra al menú Auditoría de Inventario.', 'Revisa la columna Stock teórico que calcula el sistema.', 'Captura el conteo físico de cada insumo (usa «Limpiar conteo» para empezar de nuevo).', 'Revisa las columnas Diferencia y Fuga en $.', 'Consulta la Fuga total detectada, arriba a la derecha.'],
    res: 'Sabes qué insumos tienen faltantes o sobrantes y cuánto dinero representan.',
    nota: 'La auditoría no modifica las existencias. Para ajustar el stock a lo contado, usa Conteo Físico.'},
+  {k: 'recepciones', btn: 'Nueva recepción', sirve: 'Módulo del Paquete Pro (ya no está en la sección Inventario del menú). Registra las entradas de mercancía por proveedor, compara lo pedido contra lo recibido y deja el costo actualizado. Incluye una calculadora para facturas por caja o bulto.',
+   campos: [['Proveedor', 'obligatorio.'], ['Factura / remisión', 'opcional, para identificar la entrega.'], ['Fecha', 'día de la entrega.'], ['Motivo / observaciones', 'obligatorio: por qué se recibe o qué pasó con la entrega; queda guardado en el historial de auditoría.'], ['Insumo', 'se busca escribiendo en el catálogo.'], ['¿Compras por caja / bulto?', 'opción desplegable para cuando el proveedor factura por cajas, bultos o presentaciones cerradas. Captura la cantidad de bultos, el contenido por bulto y el costo por bulto, y pulsa «Aplicar»: el sistema convierte a la unidad base de compra y rellena la cantidad y el costo unitario.'], ['Pedido, Recibido y Cost. unit. ($)', 'cantidades en unidad de compra y costo por unidad.'], ['Agregar', 'indispensable: con este clic el producto baja y se lista en la tabla de la bitácora.'], ['Confirmar recepción', 'guarda toda la factura y abre el comprobante.']],
+   flujo: ['Acceso: en la sección Paquete Pro del menú lateral entra a Recepción de Proveedor y haz clic en «Nueva recepción».', 'Datos generales: captura el proveedor, la factura / remisión y la fecha.', 'Captura y adición por insumo: busca el insumo en el catálogo. Si el proveedor te factura por cajas, bultos o presentaciones cerradas, despliega «¿Compras por caja / bulto?», ingresa las cajas que llegaron y el sistema hace la conversión automática a la unidad base de compra. Captura la cantidad Recibido y el Cost. unit. Haz clic en «Agregar» para que el producto baje y se liste en la tabla de la bitácora. Repite este proceso por cada producto de la factura.', 'Confirmación global: revisa que todos los insumos de la tabla estén correctos y presiona «Confirmar recepción».'],
+   res: 'Lo recibido se suma al stock, el costo del insumo se recalcula como costo promedio ponderado y se genera un folio REC con comprobante para imprimir. Queda registrado el proveedor y el último costo de compra.',
+   nota: 'Si no haces clic en «Agregar», el insumo no entra a la tabla y no se registra. En la lista ves el proveedor, el total recibido y la diferencia de cada entrega. El costo actualizado es el que usan Insumos, Recetas y Rendimiento (costo por porción y Food Cost) y Estimación de Compras (último costo de compra y proveedor).'},
+  {k: 'estimacion', btn: 'Copiar pedido / Copiar todo el pedido', sirve: 'Módulo del Paquete Pro. Calcula qué comprar y cuánto costará, sin mover el inventario. Tiene dos métodos: por stock mínimo y por proyección de recetas. Agrupa el resultado por proveedor, lo convierte a presentaciones de compra (caja, saco, garrafa…) y te deja copiarlo o imprimirlo.',
+   campos: [['Por stock mínimo', 'toma los insumos cuyo stock actual es igual o menor a su stock mínimo y calcula lo que falta para llegar al doble del mínimo (el mismo nivel que sugiere Inventario).'], ['Por proyección de recetas', 'captura cuántas porciones planeas producir de cada receta; el sistema suma los ingredientes de todas (con la merma estándar de cada insumo), resta lo que hay en inventario y muestra solo el faltante neto.'], ['Condimentos / sazón', 'en la proyección se suma al presupuesto, como reserva en pesos, el % de condimentos de cada receta; no es un insumo a pedir.'], ['Último costo de compra', 'sale de la entrada más reciente (Recepción de Proveedor o Entrada de insumo); si no hay, se usa el costo del catálogo. Presupuesto = cantidad a pedir × ese costo.'], ['Proveedor', 'el de la última compra del insumo, o el que definas en su presentación.'], ['Presentación (Definir / Editar)', 'elige caja, saco, bulto, garrafa o paquete, captura cuántos kg, lt o pza contiene y, si quieres, el proveedor habitual.'], ['A pedir', 'el sistema sugiere las presentaciones completas que cubren el faltante (redondea hacia arriba); puedes cambiar la cantidad y el costo se recalcula. Sin presentación se pide en la unidad del insumo.'], ['Copiar pedido / Copiar todo el pedido', 'copia la lista de un proveedor, o la de todos, lista para enviarla. El botón de impresión de arriba imprime la estimación.']],
+   flujo: ['Entra al menú Estimación de Compras (sección Paquete Pro).', 'Elige el método: «Por stock mínimo» o «Por proyección de recetas».', 'Si elegiste la proyección, escribe las porciones a producir de cada receta; el resultado se actualiza al momento.', 'Revisa, por proveedor, el faltante, el stock actual y el último costo de cada insumo.', 'Define la presentación de compra de los insumos que compras por caja, saco o garrafa (botón «Definir»).', 'Ajusta la columna «A pedir» si quieres más o menos que la sugerencia.', 'Haz clic en «Copiar pedido» en cada proveedor (o «Copiar todo el pedido»), o imprime la estimación.'],
+   res: 'Obtienes la lista de compras por proveedor, con cantidades en la unidad del insumo y en presentaciones, y el presupuesto estimado.',
+   nota: 'Es solo una estimación: no cambia el stock ni genera movimientos. Las elaboraciones internas (subrecetas) no se compran y se avisan aparte. Cuando llegue la mercancía regístrala en Recepción de Proveedor. Las presentaciones y proveedores habituales se guardan con el respaldo de tus datos.'},
   {k: 'recetas', btn: 'Nueva receta', sirve: 'Arma la ficha técnica de cada platillo y calcula solo su costo de producción, precio sugerido y food cost.',
    campos: [['Nombre del platillo y Categoría', 'cómo se llama y en qué grupo va.'], ['Porciones que rinde', 'cuántas porciones salen de la receta.'], ['Precio de venta real por porción ($)', 'lo que cobras.'], ['% Condimentos / Sazón', 'porcentaje extra de especias y condimentos.'], ['Insumos', 'escribe para buscar o crear, anota Cantidad neta y Unidad (gr, ml, pza) y pulsa «Agregar».'], ['Preparación / notas', 'instrucciones para cocina.']],
    flujo: ['Entra al menú Recetas y Rendimiento y haz clic en «Nueva receta».', 'Captura el nombre del platillo, la categoría, las porciones que rinde y el precio de venta real por porción.', 'Busca cada insumo, anota su cantidad neta y unidad, y haz clic en «Agregar». Repite por cada insumo de la receta.', 'Ajusta el % de condimentos / sazón y escribe la preparación.', 'Haz clic en «Guardar receta».'],
    res: 'Se calcula solo el costo por porción, el precio sugerido y el Food Cost %, usando el costo neto de cada insumo.',
-   nota: 'Food Cost % = costo por porción ÷ precio de venta real. El precio sugerido apunta a 30 % de food cost. «Rendimiento» y «Ficha técnica» en cada fila muestran platillos estimados y la ficha. Las recetas no modifican el inventario.'}
+   nota: 'Food Cost % = costo por porción ÷ precio de venta real. El precio sugerido apunta a 30 % de food cost. «Rendimiento» y «Ficha técnica» en cada fila muestran platillos estimados y la ficha. Las recetas no modifican el inventario. Alimentan Estimación de Compras: las porciones que rinde, la merma estándar de cada insumo y el % de condimentos se usan en la proyección.'},
+  {k: 'licencias', btn: 'Registrar nuevo restaurante', sirve: 'Solo para el perfil Master. Controla la licencia de cada restaurante (plan, estatus y vencimiento) y revisa las solicitudes de acceso que llegan desde «Solicitar acceso».',
+   campos: [['Pestañas Restaurantes / Solicitudes', 'cambian entre los restaurantes registrados y las solicitudes recibidas.'], ['Plan', 'Básico (sección Inventario) o Pro (agrega el Paquete Pro: Auditoría de Inventario, Recepción de Proveedor, Estimación de Compras y Recetas y Rendimiento).'], ['Estatus y vencimiento', 'una empresa suspendida o vencida ve la pantalla de licencia al iniciar sesión.'], ['Suspender / Activar, +30 días y Editar', 'botones de cada fila para cambiar el estatus, extender el vencimiento o corregir los datos.'], ['Solicitudes', 'cada una se puede marcar En revisión, Aprobar, Rechazar, Imprimir, Descargar o Eliminar.']],
+   flujo: ['Entra al menú Panel Master (Licencias).', 'En «Restaurantes» revisa el plan, el estatus y los días restantes de cada empresa.', 'Para dar de alta uno haz clic en «Registrar nuevo restaurante» y captura su plan, estatus y vencimiento, o aprueba su solicitud en la pestaña «Solicitudes».', 'Usa «+30 días» para renovar o «Suspender» / «Activar» para cambiar el acceso.', 'Vincula a los usuarios del restaurante con el ID de la empresa (botón «Copiar ID»).'],
+   res: 'Cada restaurante entra solo mientras su licencia esté activa y vigente, y ve los módulos de su plan.',
+   nota: 'Esta sección solo aparece para el perfil Master.'},
+  {k: 'ayuda', btn: 'Abrir módulo', sirve: 'Es este manual: explica para qué sirve cada módulo del menú lateral, cómo llenarlo y su flujo paso a paso, en el mismo orden del menú.',
+   campos: [['Flujo operativo recomendado', 'el recuadro de arriba resume el orden en que se usan los módulos.'], ['Índice numerado', 'los botones de arriba te llevan directo a cada módulo.'], ['Abrir módulo', 'botón de cada sección que abre ese módulo. Con el Plan Básico, los módulos del Paquete Pro muestran la insignia PRO y solo el aviso del plan.'], ['Solo administrador', 'etiqueta de los módulos que tu perfil no puede abrir.']],
+   flujo: ['Entra al menú Ayuda / Manual.', 'Elige el módulo en el índice o desplázate hasta su sección.', 'Lee para qué sirve, cómo se llena y su flujo paso a paso.', 'Haz clic en «Abrir módulo» para ir a trabajar.'],
+   res: 'Sabes en qué orden usar los módulos y qué hace cada botón.'},
+  {k: 'ajustes', btn: 'Guardar', sirve: 'Datos de la cuenta: nombre del establecimiento para los formatos impresos, respaldo de datos, equipo de trabajo y acciones críticas.',
+   campos: [['Establecimiento', 'nombre que aparece en el encabezado de los formatos impresos; se guarda con «Guardar».'], ['Respaldo de datos', '«Exportar respaldo (.json)» descarga tus datos; «Restaurar respaldo (.json)» los reemplaza por los del archivo.'], ['Equipo y Accesos', '(administrador) «Agregar usuario» da de alta al personal operativo (cocina, almacén, barra), que solo ve los módulos operativos.'], ['Cambiar contraseña', 'botón 🔑 del encabezado, disponible para todos los usuarios con cualquier plan: escribe la nueva contraseña (mínimo 6 caracteres), confírmala y haz clic en «Guardar».'], ['Mantener sesión iniciada', 'casilla del inicio de sesión, marcada por defecto. Si la desmarcas, la sesión se cierra al cerrar la pestaña o el navegador; «Cerrar sesión» la termina siempre.'], ['Restaurar datos demo / Vaciar cuenta', 'piden la contraseña de tu cuenta; Vaciar cuenta además exige escribir VACIAR. No se pueden deshacer.']],
+   flujo: ['Entra al menú Ajustes.', 'Escribe el nombre del establecimiento y haz clic en «Guardar».', 'Descarga un respaldo con «Exportar respaldo (.json)» de forma periódica.', 'Da de alta a tu personal con «Agregar usuario».', 'Usa «Restaurar datos demo» o «Vaciar cuenta» solo cuando de verdad lo necesites e ingresa tu contraseña para confirmar.'],
+   res: 'La cuenta queda configurada y respaldada.',
+   nota: 'Antes de restaurar o vaciar, exporta un respaldo: esas acciones reemplazan o eliminan los datos actuales.'}
 ];
+const AYUDA_GRP = {insumos: 'base', inventario: 'base', conteo: 'base', requisiciones: 'base', mermas: 'base', cortesias: 'base', auditoria: 'pro', recepciones: 'pro', estimacion: 'pro', recetas: 'pro', licencias: 'adm', ayuda: 'adm', ajustes: 'adm'};
+const AYUDA_GRP_TXT = {base: ['Inventario', 'Plan Básico: la operación diaria del almacén y la cocina.'], pro: ['Paquete Pro', 'Control administrativo y gerencial. Con el Plan Básico estos módulos aparecen bloqueados con la insignia PRO.'], adm: ['Administración', 'Licencias, manual y ajustes de la cuenta.']};
 function vAyuda() {
-  const idx = AYUDA.map((a, n) => `<button class="btn btn-s" onclick="ayudaIr('${a.k}')">${n + 1}. ${esc(modulo(a.k).t)}</button>`).join('');
+  const L = AYUDA.filter(a => a.k !== 'licencias' || esSuper());   // el Panel Master solo se explica al perfil Master
+  const idx = L.map((a, n) => `<button class="btn btn-s" onclick="ayudaIr('${a.k}')">${n + 1}. ${esc(modulo(a.k).t)}</button>`).join('');
   const sec = (a, n) => {
     const mo = modulo(a.k), ok = puede(a.k);
     return `<section id="ay_${a.k}" class="bg-[#0b0f19] border border-slate-800 rounded-2xl p-4 scroll-mt-4">
@@ -2412,8 +2568,17 @@ function vAyuda() {
         ${a.nota ? `<p class="text-xs text-slate-400">${esc(a.nota)}</p>` : ''}
       </div></section>`;
   };
-  $('#view').innerHTML = head('Ayuda / Manual de Usuario', 'Guía rápida de cada módulo: para qué sirve, cómo llenarlo y su secuencia paso a paso.') +
-    `<div class="flex flex-wrap gap-2 mb-4">${idx}</div><div class="grid gap-4">${AYUDA.map(sec).join('')}</div>`;
+  let g = '';
+  const cuerpo = L.map((a, n) => {
+    const hd = AYUDA_GRP[a.k] !== g ? (g = AYUDA_GRP[a.k], `<div class="pt-2"><h2 class="brand text-xl font-bold">${AYUDA_GRP_TXT[g][0]}</h2><p class="text-xs text-slate-400">${AYUDA_GRP_TXT[g][1]}</p></div>`) : '';
+    return hd + sec(a, n);
+  }).join('');
+  const paso = (t, d, pro) => `<li class="flex gap-2"><span><b class="text-white">${t}</b>${pro ? ' <span class="pill o">PRO</span>' : ''} <span class="text-slate-400">${d}</span></span></li>`;
+  const flujo = `<div class="bg-[#0b0f19] border border-slate-800 rounded-2xl p-4 mb-4"><h2 class="brand text-lg font-bold mb-1">Flujo operativo recomendado</h2>
+    <p class="text-xs text-slate-400 mb-2">El orden en que se conectan los módulos en el día a día:</p>
+    <ol class="list-decimal pl-5 space-y-1 text-sm">${paso('Insumos', '→ das de alta el catálogo con costo, merma y stock mínimo.')}${paso('Recepción de Proveedor / Conteo Físico', '→ entra la mercancía (actualiza stock y costo promedio) o ajustas el stock a lo contado.', true)}${paso('Requisiciones / Mermas (y Cortesías)', '→ registras las salidas reales a cocina, barra o desperdicio.')}${paso('Recetas y Rendimiento', '→ con los costos al día calculas costo por porción y Food Cost.', true)}${paso('Estimación de Compras', '→ calculas qué comprar, por stock mínimo o por la producción proyectada.', true)}${paso('Auditoría de Inventario', '→ comparas el stock teórico contra el conteo físico y detectas fugas.', true)}</ol></div>`;
+  $('#view').innerHTML = head('Ayuda / Manual de Usuario', 'Guía rápida de cada módulo: para qué sirve, cómo llenarlo y su secuencia paso a paso, en el orden del menú lateral.') +
+    flujo + `<div class="flex flex-wrap gap-2 mb-4">${idx}</div><div class="grid gap-4">${cuerpo}</div>`;
 }
 function ayudaIr(k) { const e = document.getElementById('ay_' + k); if (e) e.scrollIntoView({behavior: 'smooth', block: 'start'}); }
 
@@ -2424,7 +2589,7 @@ function guardarConfig() { S.config = S.config || {}; S.config.nombre = $('#cfg_
 const txt = h => String(h).replace(/<[^>]+>/g, '');
 const ETQ_IMP = {insumos: 'Imprimir Catálogo de Insumos', inventario: 'Imprimir Inventario', conteo: 'Imprimir Hoja de Conteo', recepciones: 'Imprimir Recepciones',
   requisiciones: 'Imprimir Requisiciones', mermas: 'Imprimir Mermas', cortesias: 'Imprimir Cortesías',
-  auditoria: 'Imprimir Reporte de Auditoría', licencias: 'Imprimir Reporte de Licencias', recetas: 'Imprimir Reporte de Recetas y Rendimiento'};
+  auditoria: 'Imprimir Reporte de Auditoría', estimacion: 'Imprimir Estimación de Compras', licencias: 'Imprimir Reporte de Licencias', recetas: 'Imprimir Reporte de Recetas y Rendimiento'};
 // El botón superior solo aparece en los módulos con reporte propio (REPORTES); no hay impresión genérica de pantalla
 function etiquetaImp() {
   const b = $('#btnImp'); if (!b) return;
@@ -2521,7 +2686,7 @@ function htmlCortesias() {
     `<p><b>Costo que descontó stock (por insumo):</b> ${money(totM('insumo'))} · <b>Costo solo de control (receta, sin descontar stock):</b> ${money(totM('receta'))}</p>` + desg, ['Elaboró', 'Autoriza']);
 }
 const REPORTES = {insumos: htmlInsumos, inventario: htmlInventario, conteo: htmlConteo, recepciones: htmlRecepciones, requisiciones: htmlRequisiciones, mermas: htmlMermas, cortesias: htmlCortesias,
-  auditoria: htmlAuditoria, licencias: htmlLicencias, recetas: htmlRecetas};
+  auditoria: htmlAuditoria, estimacion: htmlEstimacion, licencias: htmlLicencias, recetas: htmlRecetas};
 const reporteActual = () => REPORTES[mod] ? REPORTES[mod]() : '';
 function imprimirReporteActual() { if (REPORTES[mod]) imprimir(reporteActual()); }
 // Ctrl+P también imprime el reporte de la pestaña activa (no el último documento generado)
@@ -2578,6 +2743,38 @@ async function guardarNuevaClave() {
 }
 if (sb) sb.auth.onAuthStateChange(ev => { if (ev === 'PASSWORD_RECOVERY') abrirNuevaClave(); });   // solo pinta el modal (sin llamadas a Supabase dentro del callback)
 if (RECUP_URL) setTimeout(abrirNuevaClave, 0);
+
+/* ---- Cambiar contraseña desde el encabezado (todos los usuarios, Plan Básico y Pro) ---- */
+let CP_BUSY = false;
+function abrirCambioClave() {
+  if (!SES) return;
+  openModal(`<h2 class="brand text-xl font-bold mb-1">Cambiar contraseña</h2><p class="text-slate-400 text-sm mb-3">Usa al menos 6 caracteres. Tu sesión actual se mantiene abierta.</p>
+    <label class="block text-sm text-slate-300">Nueva contraseña<input id="cp_1" type="password" class="inp mt-1" autocomplete="new-password"></label>
+    <label class="block text-sm text-slate-300 mt-3">Confirmar contraseña<input id="cp_2" type="password" class="inp mt-1" autocomplete="new-password" onkeydown="if(event.key==='Enter')guardarCambioClave()"></label>
+    <p id="cp_msg" class="text-sm mt-3" role="alert"></p>
+    <div class="flex justify-end gap-2 mt-4"><button class="btn btn-s" onclick="closeModal()">Cancelar</button><button class="btn btn-p" id="cp_ok" onclick="guardarCambioClave()">Guardar</button></div>`);
+  $('#cp_1').focus();
+}
+async function guardarCambioClave() {
+  if (CP_BUSY) return;
+  const p1 = $('#cp_1').value, p2 = $('#cp_2').value, msg = (m, ok) => { const e = $('#cp_msg'); e.textContent = m; e.className = 'text-sm mt-3 ' + (ok ? 'text-emerald-300' : 'text-red-400'); };
+  if (p1.length < 6) return msg('La contraseña debe tener al menos 6 caracteres.');
+  if (p1 !== p2) return msg('Las contraseñas no coinciden.');
+  if (!sb) return msg('Sin conexión con el servidor. Intenta de nuevo.');
+  CP_BUSY = true; $('#cp_ok').disabled = true; msg('Guardando…', true);
+  try {
+    const r = await sb.auth.updateUser({password: p1}), m = String((r.error && r.error.message) || '');
+    if (r.error) {
+      sbLog('auth.updateUser (cambiar contraseña)', r.error, {});
+      msg(/same|different/i.test(m) ? 'La nueva contraseña debe ser distinta a la actual.'
+        : /weak|short|at least|characters|pwned|easy/i.test(m) ? 'La contraseña es muy débil. Usa una más larga o menos común.'
+        : /session|jwt|authenticated|missing/i.test(m) ? 'Tu sesión expiró. Cierra sesión, vuelve a entrar e inténtalo de nuevo.'
+        : /reauth|recent/i.test(m) ? 'Por seguridad, cierra sesión, vuelve a entrar e inténtalo de nuevo.'
+        : 'No se pudo actualizar la contraseña. Intenta de nuevo.');
+    } else { msg('✅ Contraseña actualizada correctamente.', true); setTimeout(() => { if ($('#cp_ok')) closeModal(); }, 1600); }
+  } catch (e) { sbLog('auth.updateUser (cambiar contraseña)', e, {}); msg('Sin conexión con el servidor. Intenta de nuevo.'); }
+  CP_BUSY = false; const b = $('#cp_ok'); if (b) b.disabled = false;
+}
 
 /* ============ 18. ARRANQUE ============ */
 iniciarApp();

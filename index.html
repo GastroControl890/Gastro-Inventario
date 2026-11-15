@@ -1,97 +1,535 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="es" class="scroll-smooth">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gastro-Stock | Control de Inventarios y Costos para Restaurantes</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <style>
-        body { font-family: 'Inter', sans-serif; }
-        .brand { font-family: 'Bricolage Grotesque', sans-serif; }
-        .hero-bg {
-            background: linear-gradient(to bottom, rgba(7, 9, 17, 0.8), rgba(7, 9, 17, 0.95)), 
-                        url('https://images.unsplash.com/photo-1556910103-1c02745aae4d?q=80&w=1920&auto=format&fit=crop');
-            background-size: cover;
-            background-position: center;
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gastro-Stock — Sistema Operativo Gastronómico</title>
+  <meta name="description" content="Control de costos, mermas ilimitadas y estimación de compras para restaurantes, cafeterías, dark kitchens y bares. A partir de $490 MXN al mes." />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+          },
+          colors: {
+            navy: {
+              950: '#0B111E',
+              900: '#121826',
+              850: '#172033',
+              800: '#1E293B',
+            },
+            brandOrange: {
+              500: '#FF7A00',
+              600: '#F97316',
+              700: '#EA580C',
+            },
+            brandGreen: {
+              500: '#10B981',
+              600: '#059669',
+              700: '#047857',
+            }
+          }
         }
-    </style>
+      }
+    }
+  </script>
+  <style>
+    body {
+      background-color: #0B111E;
+      color: #F8FAFC;
+    }
+    .grid-bg {
+      background-image: linear-gradient(to right, rgba(255, 255, 255, 0.025) 1px, transparent 1px),
+                        linear-gradient(to bottom, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+      background-size: 40px 40px;
+    }
+  </style>
 </head>
-<body class="bg-[#070911] text-white antialiased">
+<body class="antialiased selection:bg-[#FF7A00] selection:text-white">
 
-    <!-- Hero Section / Portada Estilo Netflix -->
-    <div class="hero-bg min-h-screen flex flex-col justify-between border-b-8 border-slate-900">
-        
-        <!-- Navbar Superior -->
-        <header class="max-w-7xl w-full mx-auto px-6 py-6 flex items-center justify-between">
-            <div class="flex items-center gap-3">
-                <div class="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400 font-bold text-xl brand shadow-lg shadow-emerald-500/20">
-                    G
-                </div>
-                <span class="brand text-2xl font-bold tracking-tight text-white">Gastro-Stock</span>
-            </div>
-            
-            <div class="flex items-center gap-4">
-                <div class="hidden sm:flex items-center gap-1.5 bg-slate-800/80 border border-slate-700/60 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-300">
-                    <span>Español (MX)</span>
-                </div>
-                <!-- Botón de Iniciar Sesión (aquí puedes cambiar a tu archivo login.html o app.html según prefieras) -->
-                <a href="login.html" class="bg-emerald-600 hover:bg-emerald-500 text-white font-semibold px-5 py-2 rounded-lg text-sm transition-all shadow-md shadow-emerald-600/30">
-                    Iniciar sesión
-                </a>
-            </div>
-        </header>
-
-        <!-- Contenido Central de Bienvenida -->
-        <main class="max-w-4xl mx-auto px-6 text-center py-20 my-auto">
-            <h1 class="brand text-4xl sm:text-6xl lg:text-7xl font-bold tracking-tight mb-6 leading-tight">
-                Control de costos y mermas ilimitadas y mucho más
-            </h1>
-            <p class="text-lg sm:text-xl text-slate-300 mb-8 max-w-2xl mx-auto font-normal">
-                A partir de $490 al mes. Automatiza tu cocina, estandariza recetas y optimiza insumos cuando quieras.
-            </p>
-            
-            <div class="max-w-xl mx-auto">
-                <p class="text-sm text-slate-300 mb-4 font-medium">
-                    ¿Listo para optimizar tu restaurante? Inicia sesión para acceder al sistema.
-                </p>
-                <div class="flex flex-col sm:flex-row gap-3 justify-center items-center">
-                    <a href="login.html" class="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-500 text-white font-bold px-8 py-4 rounded-xl transition-all flex items-center justify-center gap-2 shadow-xl shadow-emerald-600/30 text-base">
-                        Acceder a la plataforma
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-                    </a>
-                </div>
-            </div>
-        </main>
-
-        <div class="h-10"></div>
-    </div>
-
-    <!-- Sección Informativa / Módulos -->
-    <section class="py-20 px-6 max-w-7xl mx-auto">
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
-            <div class="bg-slate-900/60 border border-slate-800 p-8 rounded-2xl">
-                <div class="text-emerald-400 text-3xl mb-4 font-bold">📊</div>
-                <h3 class="brand text-xl font-bold mb-2">Costo Neto Real</h3>
-                <p class="text-slate-400 text-sm leading-relaxed">Calcula automáticamente el impacto de las mermas porcentuales sobre el precio de tus insumos por kilo o litro.</p>
-            </div>
-            <div class="bg-slate-900/60 border border-slate-800 p-8 rounded-2xl">
-                <div class="text-amber-400 text-3xl mb-4 font-bold">🍳</div>
-                <h3 class="brand text-xl font-bold mb-2">Subrecetas y Fichas</h3>
-                <p class="text-slate-400 text-sm leading-relaxed">Estandariza tus preparaciones con separación clara entre instrucciones de cocina y costos gerenciales.</p>
-            </div>
-            <div class="bg-slate-900/60 border border-slate-800 p-8 rounded-2xl">
-                <div class="text-sky-400 text-3xl mb-4 font-bold">🛡️</div>
-                <h3 class="brand text-xl font-bold mb-2">Panel Master Seguro</h3>
-                <p class="text-slate-400 text-sm leading-relaxed">Control total de estatus de suscripción y validación de requisiciones con restricciones exclusivas.</p>
-            </div>
+  <!-- Barra Superior de Navegación -->
+  <header class="sticky top-0 z-40 bg-[#0B111E]/90 backdrop-blur-md border-b border-slate-800/80">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+      <!-- Logo Vectorizado -->
+      <a href="#inicio" class="flex items-center gap-2.5 group">
+        <div class="w-9 h-9 rounded-lg bg-gradient-to-br from-[#FF7A00] to-[#F97316] flex items-center justify-center shadow-lg shadow-orange-500/20">
+          <svg class="w-5 h-5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6 13.87A4 4 0 0 1 7.41 6a5.11 5.11 0 0 1 1.05-1.54 5 5 0 0 1 7.08 0A5.11 5.11 0 0 1 16.59 6 4 4 0 0 1 18 13.87V21H6Z"/>
+            <line x1="6" y1="17" x2="18" y2="17"/>
+          </svg>
         </div>
-    </section>
+        <span class="text-xl font-extrabold tracking-tight text-white">Gastro<span class="text-[#FF7A00]">-Stock</span></span>
+      </a>
 
-    <!-- Footer -->
-    <footer class="py-12 border-t border-slate-800/80 text-center text-sm text-slate-500 bg-[#05070c]">
-        <p>© 2026 Gastro-Stock. Todos los derechos reservados.</p>
-    </footer>
+      <!-- Enlaces de navegación -->
+      <nav class="hidden md:flex items-center gap-8 text-sm font-medium text-slate-300">
+        <a href="#inicio" class="hover:text-white transition-colors">Inicio</a>
+        <a href="#modulos" class="hover:text-white transition-colors">Módulos</a>
+        <a href="#precios" class="hover:text-white transition-colors">Precios</a>
+        <a href="#faq" class="hover:text-white transition-colors">Preguntas</a>
+        <a href="#contacto" class="hover:text-white transition-colors">Contacto</a>
+      </nav>
+
+      <!-- Acceso directo -->
+      <div class="flex items-center gap-3">
+        <a href="app.html" class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#059669] hover:bg-[#10B981] text-white text-sm font-semibold transition-all shadow-md shadow-emerald-950/50">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3" />
+          </svg>
+          Iniciar sesión
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <!-- 2. Primera Vista (Hero Dividido) -->
+  <section id="inicio" class="relative overflow-hidden grid-bg pt-12 pb-16 lg:pt-20 lg:pb-24">
+    <div class="absolute -top-24 -left-24 w-96 h-96 bg-[#FF7A00]/10 rounded-full blur-3xl pointer-events-none"></div>
+    <div class="absolute top-1/2 -right-24 w-96 h-96 bg-[#059669]/10 rounded-full blur-3xl pointer-events-none"></div>
+
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
+      <div class="grid lg:grid-cols-12 gap-12 items-center">
+        
+        <!-- Columna Izquierda: Mensaje Principal y Conversión -->
+        <div class="lg:col-span-7 space-y-6">
+          <div class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#121826] border border-slate-700/80 text-xs font-semibold tracking-wide uppercase text-[#10B981]">
+            <span class="w-2 h-2 rounded-full bg-[#10B981] animate-pulse"></span>
+            Sistema Operativo Gastronómico
+          </div>
+
+          <h1 class="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-white leading-[1.1]">
+            Control de costos, mermas ilimitadas <span class="text-[#FF7A00]">y mucho más</span>
+          </h1>
+
+          <p class="text-lg sm:text-xl text-slate-300 max-w-2xl leading-relaxed">
+            A partir de <strong class="text-white font-semibold">$490 al mes</strong>. Automatiza tu cocina, estandariza recetas y optimiza insumos desde cualquier dispositivo.
+          </p>
+
+          <div class="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center gap-4">
+            <a href="app.html#solicitar" class="inline-flex items-center justify-center gap-2 px-7 py-4 rounded-xl bg-[#FF7A00] hover:bg-[#F97316] text-white font-bold text-base transition-all shadow-lg shadow-orange-600/25">
+              Acceder a la plataforma &gt;
+            </a>
+            <a href="#precios" class="inline-flex items-center justify-center gap-2 px-6 py-4 rounded-xl bg-[#121826] hover:bg-slate-800 border border-slate-700 text-slate-200 font-semibold text-base transition-all">
+              Comparar planes
+            </a>
+          </div>
+        </div>
+
+        <!-- Columna Derecha: Bloque interactivo "3 Pasos Sencillos para Empezar" -->
+        <div class="lg:col-span-5">
+          <div class="bg-[#121826] border border-slate-800 rounded-2xl p-6 sm:p-8 shadow-2xl">
+            <div class="flex items-center justify-between pb-5 mb-6 border-b border-slate-800">
+              <div>
+                <span class="text-xs font-semibold uppercase tracking-wider text-[#FF7A00]">Arranque rápido</span>
+                <h2 class="text-xl font-bold text-white mt-0.5">3 Pasos Sencillos para Empezar</h2>
+              </div>
+              <span class="px-2.5 py-1 rounded-md bg-[#059669]/15 text-[#10B981] text-xs font-semibold border border-[#059669]/30">
+                100% Web
+              </span>
+            </div>
+
+            <div class="space-y-4">
+              <!-- Paso 1 -->
+              <div class="group p-4 rounded-xl bg-[#0B111E] border border-slate-800 hover:border-[#FF7A00]/60 transition-all">
+                <div class="flex items-start gap-4">
+                  <div class="w-9 h-9 rounded-lg bg-[#FF7A00]/15 border border-[#FF7A00]/30 text-[#FF7A00] font-extrabold flex items-center justify-center shrink-0">
+                    1
+                  </div>
+                  <div>
+                    <h3 class="font-bold text-white group-hover:text-[#FF7A00] transition-colors">Registra tus Insumos</h3>
+                    <p class="text-sm text-slate-400 mt-1">Carga tus ingredientes y precios en minutos.</p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Paso 2 -->
+              <div class="group p-4 rounded-xl bg-[#0B111E] border border-slate-800 hover:border-[#FF7A00]/60 transition-all">
+                <div class="flex items-start gap-4">
+                  <div class="w-9 h-9 rounded-lg bg-[#FF7A00]/15 border border-[#FF7A00]/30 text-[#FF7A00] font-extrabold flex items-center justify-center shrink-0">
+                    2
+                  </div>
+                  <div>
+                    <h3 class="font-bold text-white group-hover:text-[#FF7A00] transition-colors">Captura tus Mermas</h3>
+                    <p class="text-sm text-slate-400 mt-1">Registra las pérdidas diarias directamente desde cualquier celular.</p>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Paso 3 -->
+              <div class="group p-4 rounded-xl bg-[#0B111E] border border-slate-800 hover:border-[#10B981]/60 transition-all">
+                <div class="flex items-start gap-4">
+                  <div class="w-9 h-9 rounded-lg bg-[#059669]/15 border border-[#059669]/30 text-[#10B981] font-extrabold flex items-center justify-center shrink-0">
+                    3
+                  </div>
+                  <div>
+                    <h3 class="font-bold text-white group-hover:text-[#10B981] transition-colors">Analiza y Ahorra</h3>
+                    <p class="text-sm text-slate-400 mt-1">Genera reportes automáticos en tiempo real y protege tu margen de ganancia.</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- 3. Franja de Confianza Inmediata -->
+  <section class="bg-[#121826] border-y border-slate-800/90 py-10">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        
+        <div class="flex items-start gap-3.5">
+          <div class="w-10 h-10 rounded-lg bg-[#059669]/15 border border-[#059669]/30 flex items-center justify-center text-[#10B981] shrink-0">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3 21h18M5 21V7l8-4v18M19 21V11l-6-4" />
+            </svg>
+          </div>
+          <div>
+            <h3 class="font-bold text-white text-sm">Ideal para PyMEs</h3>
+            <p class="text-xs text-slate-400 mt-1 leading-relaxed">Diseñado específicamente para cafeterías, restaurantes, dark kitchens y bares en crecimiento.</p>
+          </div>
+        </div>
+
+        <div class="flex items-start gap-3.5">
+          <div class="w-10 h-10 rounded-lg bg-[#059669]/15 border border-[#059669]/30 flex items-center justify-center text-[#10B981] shrink-0">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </div>
+          <div>
+            <h3 class="font-bold text-white text-sm">Sin plazos forzosos</h3>
+            <p class="text-xs text-slate-400 mt-1 leading-relaxed">Suscripción mensual flexible; cancelas o cambias de plan cuando lo requieras sin penalización.</p>
+          </div>
+        </div>
+
+        <div class="flex items-start gap-3.5">
+          <div class="w-10 h-10 rounded-lg bg-[#059669]/15 border border-[#059669]/30 flex items-center justify-center text-[#10B981] shrink-0">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2z" />
+            </svg>
+          </div>
+          <div>
+            <h3 class="font-bold text-white text-sm">Facturación disponible</h3>
+            <p class="text-xs text-slate-400 mt-1 leading-relaxed">Todos los pagos son 100% deducibles de impuestos (emisión de factura fiscal CFDI cada mes).</p>
+          </div>
+        </div>
+
+        <div class="flex items-start gap-3.5">
+          <div class="w-10 h-10 rounded-lg bg-[#059669]/15 border border-[#059669]/30 flex items-center justify-center text-[#10B981] shrink-0">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
+            </svg>
+          </div>
+          <div>
+            <h3 class="font-bold text-white text-sm">Disponibilidad 24/7 en la nube</h3>
+            <p class="text-xs text-slate-400 mt-1 leading-relaxed">Respaldo automático de información con altos estándares de seguridad y cero riesgo de pérdida de datos.</p>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- 4. Comparativa Rápida de Paquetes y Precios -->
+  <section id="precios" class="py-20">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="text-center max-w-3xl mx-auto mb-14">
+        <span class="text-xs font-bold uppercase tracking-widest text-[#FF7A00]">Planes transparentes</span>
+        <h2 class="text-3xl sm:text-4xl font-extrabold text-white mt-2">Elige el plan ideal para tu negocio</h2>
+        <p class="text-slate-400 mt-3">Comienza con el control esencial de almacén o escala hacia el costeo exacto de recetas y auditoría avanzada.</p>
+      </div>
+
+      <!-- Tarjetas Destacadas Superior -->
+      <div class="grid md:grid-cols-2 gap-8 max-w-5xl mx-auto mb-14">
+        <!-- Plan Operativo Base -->
+        <div class="bg-[#121826] border border-slate-800 rounded-2xl p-8 flex flex-col justify-between">
+          <div>
+            <div class="flex items-center justify-between">
+              <h3 class="text-xl font-bold text-white">Plan Operativo Base</h3>
+              <span class="px-3 py-1 rounded-full text-xs font-semibold bg-slate-800 text-slate-300">Almacén y Mermas</span>
+            </div>
+            <p class="text-sm text-slate-400 mt-2">Control diario de almacén y prevención de fugas.</p>
+            <div class="mt-6 flex items-baseline gap-2">
+              <span class="text-4xl font-extrabold text-white">$490</span>
+              <span class="text-sm font-semibold text-slate-400">MXN / mes (+ IVA)</span>
+            </div>
+            <ul class="mt-6 space-y-3 text-sm text-slate-300">
+              <li class="flex items-center gap-2.5">
+                <span class="text-[#10B981] font-bold">✓</span> Catálogo completo e inventario en tiempo real
+              </li>
+              <li class="flex items-center gap-2.5">
+                <span class="text-[#10B981] font-bold">✓</span> Alertas de mínimo y lista de compra automática
+              </li>
+              <li class="flex items-center gap-2.5">
+                <span class="text-[#10B981] font-bold">✓</span> Registro ilimitado de mermas, cortesías y requisiciones
+              </li>
+              <li class="flex items-center gap-2.5">
+                <span class="text-[#10B981] font-bold">✓</span> Conteo físico y acceso multi-dispositivo
+              </li>
+            </ul>
+          </div>
+          <a href="app.html#solicitar" class="mt-8 block w-full text-center py-3.5 px-6 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-sm transition-colors">
+            Solicitar Plan Base &gt;
+          </a>
+        </div>
+
+        <!-- Paquete Pro -->
+        <div class="bg-[#121826] border-2 border-[#FF7A00] rounded-2xl p-8 flex flex-col justify-between relative shadow-2xl shadow-orange-950/20">
+          <div class="absolute -top-3.5 right-6 px-3.5 py-1 rounded-full bg-[#FF7A00] text-white text-xs font-extrabold uppercase tracking-wider">
+            Recomendado
+          </div>
+          <div>
+            <div class="flex items-center justify-between">
+              <h3 class="text-xl font-bold text-white">Paquete Pro</h3>
+              <span class="px-3 py-1 rounded-full text-xs font-semibold bg-[#FF7A00]/15 text-[#FF7A00]">Costeo y Auditoría</span>
+            </div>
+            <p class="text-sm text-slate-400 mt-2">Rentabilidad, costeo exacto y auditoría avanzada.</p>
+            <div class="mt-6 flex items-baseline gap-2">
+              <span class="text-4xl font-extrabold text-white">$890</span>
+              <span class="text-sm font-semibold text-slate-400">MXN / mes (+ IVA)</span>
+            </div>
+            <ul class="mt-6 space-y-3 text-sm text-slate-300">
+              <li class="flex items-center gap-2.5">
+                <span class="text-[#FF7A00] font-bold">✓</span> Todo lo incluido en el Plan Operativo Base
+              </li>
+              <li class="flex items-center gap-2.5">
+                <span class="text-[#FF7A00] font-bold">✓</span> Recepción de proveedor con o sin factura y trazabilidad
+              </li>
+              <li class="flex items-center gap-2.5">
+                <span class="text-[#FF7A00] font-bold">✓</span> Recetas y rendimiento: costeo automático por platillo/bebida
+              </li>
+              <li class="flex items-center gap-2.5">
+                <span class="text-[#FF7A00] font-bold">✓</span> Auditoría de inventario: teórico vs. físico
+              </li>
+              <li class="flex items-center gap-2.5">
+                <span class="text-[#FF7A00] font-bold">✓</span> Estimación de compras inteligente y analítica avanzada
+              </li>
+            </ul>
+          </div>
+          <a href="app.html#solicitar" class="mt-8 block w-full text-center py-3.5 px-6 rounded-xl bg-[#FF7A00] hover:bg-[#F97316] text-white font-bold text-sm transition-colors shadow-lg shadow-orange-600/25">
+            Acceder al Paquete Pro &gt;
+          </a>
+        </div>
+      </div>
+
+      <!-- Tabla Comparativa Detallada -->
+      <div id="modulos" class="max-w-5xl mx-auto bg-[#121826] border border-slate-800 rounded-2xl overflow-hidden">
+        <div class="px-6 py-5 border-b border-slate-800 bg-[#172033]/50">
+          <h3 class="text-lg font-bold text-white">Comparativa Detallada de Módulos</h3>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left border-collapse text-sm">
+            <thead>
+              <tr class="border-b border-slate-800 text-slate-300 bg-[#0B111E]/60">
+                <th class="py-4 px-6 font-bold">Característica / Módulo</th>
+                <th class="py-4 px-6 font-bold text-white">Plan Operativo Base</th>
+                <th class="py-4 px-6 font-bold text-[#FF7A00]">Paquete Pro</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-800/80 text-slate-300">
+              <tr>
+                <td class="py-4 px-6 font-semibold text-white">Precio Mensual</td>
+                <td class="py-4 px-6 font-bold text-white">$490 MXN / mes (+ IVA)</td>
+                <td class="py-4 px-6 font-bold text-[#FF7A00]">$890 MXN / mes (+ IVA)</td>
+              </tr>
+              <tr>
+                <td class="py-4 px-6 font-semibold text-white">Enfoque Principal</td>
+                <td class="py-4 px-6">Control diario de almacén y prevención de fugas</td>
+                <td class="py-4 px-6">Rentabilidad, costeo exacto y auditoría avanzada</td>
+              </tr>
+              <tr>
+                <td class="py-4 px-6 font-semibold text-white">Control de Inventario</td>
+                <td class="py-4 px-6">Catálogo completo e inventario en tiempo real</td>
+                <td class="py-4 px-6 text-[#10B981] font-semibold">Incluido</td>
+              </tr>
+              <tr>
+                <td class="py-4 px-6 font-semibold text-white">Alertas de Stock</td>
+                <td class="py-4 px-6">Alertas de mínimo y lista de compra automática</td>
+                <td class="py-4 px-6 text-[#10B981] font-semibold">Incluido</td>
+              </tr>
+              <tr>
+                <td class="py-4 px-6 font-semibold text-white">Mermas y Requisiciones</td>
+                <td class="py-4 px-6">Registro ilimitado de mermas, cortesías y requisiciones</td>
+                <td class="py-4 px-6 text-[#10B981] font-semibold">Incluido</td>
+              </tr>
+              <tr>
+                <td class="py-4 px-6 font-semibold text-white">Operación Física</td>
+                <td class="py-4 px-6">Conteo físico, mermas, cortesías y requisiciones</td>
+                <td class="py-4 px-6">Recepción de Proveedor con o sin factura, actualización de costos y trazabilidad</td>
+              </tr>
+              <tr>
+                <td class="py-4 px-6 font-semibold text-white">Acceso Multi-dispositivo</td>
+                <td class="py-4 px-6">Celular, tablet o computadora</td>
+                <td class="py-4 px-6 text-[#10B981] font-semibold">Incluido</td>
+              </tr>
+              <tr>
+                <td class="py-4 px-6 font-semibold text-white">Recetas y Rendimiento</td>
+                <td class="py-4 px-6 text-slate-600">—</td>
+                <td class="py-4 px-6">Costeo automático por platillo/bebida y cálculo de mermas</td>
+              </tr>
+              <tr>
+                <td class="py-4 px-6 font-semibold text-white">Auditoría de Inventario</td>
+                <td class="py-4 px-6 text-slate-600">—</td>
+                <td class="py-4 px-6">Comparativa directa entre inventario teórico vs. físico</td>
+              </tr>
+              <tr>
+                <td class="py-4 px-6 font-semibold text-white">Estimación de Compras</td>
+                <td class="py-4 px-6 text-slate-600">—</td>
+                <td class="py-4 px-6">Cálculo inteligente de lista sugerida de compras por stock mínimo, proyección de producción/recetas y conversión a bulto/caja con presupuesto estimado</td>
+              </tr>
+              <tr>
+                <td class="py-4 px-6 font-semibold text-white">Analítica Avanzada</td>
+                <td class="py-4 px-6 text-slate-600">—</td>
+                <td class="py-4 px-6">Reportes avanzados de costos, márgenes y movimientos</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5. Argumentos Clave de Venta ("¿Qué más?") -->
+  <section class="py-16 bg-[#121826]/70 border-y border-slate-800/80">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="text-center max-w-2xl mx-auto mb-12">
+        <span class="text-xs font-bold uppercase tracking-widest text-[#10B981]">Ventajas operativas</span>
+        <h2 class="text-3xl font-extrabold text-white mt-2">¿Qué más ofrece Gastro-Stock?</h2>
+      </div>
+
+      <div class="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div class="bg-[#0B111E] border border-slate-800 rounded-2xl p-6">
+          <div class="w-11 h-11 rounded-xl bg-[#FF7A00]/15 text-[#FF7A00] flex items-center justify-center mb-4">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+          </div>
+          <h3 class="font-bold text-white text-base">Multi-usuario con roles diferenciados</h3>
+          <p class="text-sm text-slate-400 mt-2 leading-relaxed">Control operativo total sin compartir contraseñas. El dueño supervisa costos y reportes financieros; el chef, almacenista o barra solo capturan mermas, conteos o requisiciones según sus permisos.</p>
+        </div>
+
+        <div class="bg-[#0B111E] border border-slate-800 rounded-2xl p-6">
+          <div class="w-11 h-11 rounded-xl bg-[#059669]/15 text-[#10B981] flex items-center justify-center mb-4">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
+            </svg>
+          </div>
+          <h3 class="font-bold text-white text-base">Cero instalaciones ni equipos costosos</h3>
+          <p class="text-sm text-slate-400 mt-2 leading-relaxed">Plataforma 100% web que funciona sin problemas desde el navegador de cualquier celular, tablet o laptop existente.</p>
+        </div>
+
+        <div class="bg-[#0B111E] border border-slate-800 rounded-2xl p-6">
+          <div class="w-11 h-11 rounded-xl bg-[#FF7A00]/15 text-[#FF7A00] flex items-center justify-center mb-4">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+          </div>
+          <h3 class="font-bold text-white text-base">Migración rápida y asistida</h3>
+          <p class="text-sm text-slate-400 mt-2 leading-relaxed">Carga ágil de listas de insumos existentes mediante plantillas simples para arrancar a operar el mismo día.</p>
+        </div>
+
+        <div class="bg-[#0B111E] border border-slate-800 rounded-2xl p-6">
+          <div class="w-11 h-11 rounded-xl bg-[#059669]/15 text-[#10B981] flex items-center justify-center mb-4">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M18.364 5.636l-3.536 3.536m0 5.656l3.536 3.536M9.172 9.172L5.636 5.636m3.536 9.192l-3.536 3.536M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-5 0a4 4 0 11-8 0 4 4 0 018 0z" />
+            </svg>
+          </div>
+          <h3 class="font-bold text-white text-base">Soporte directo y en español</h3>
+          <p class="text-sm text-slate-400 mt-2 leading-relaxed">Atención humana y especializada para resolver dudas operativas o acompañar durante los cierres de inventario.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6. Preguntas Frecuentes (FAQ) -->
+  <section id="faq" class="py-20">
+    <div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="text-center mb-12">
+        <span class="text-xs font-bold uppercase tracking-widest text-[#FF7A00]">Resuelve tus dudas</span>
+        <h2 class="text-3xl font-extrabold text-white mt-2">Preguntas Frecuentes</h2>
+      </div>
+
+      <div class="space-y-4">
+        <details class="group bg-[#121826] border border-slate-800 rounded-xl p-6" open>
+          <summary class="flex items-center justify-between cursor-pointer font-bold text-white list-none">
+            <span>¿Cómo funciona la facturación mensual?</span>
+            <span class="text-[#FF7A00] font-bold text-xl group-open:rotate-45 transition-transform">+</span>
+          </summary>
+          <p class="text-sm text-slate-400 mt-3 leading-relaxed">
+            El sistema permite registrar tus datos fiscales y adjuntar la Constancia de Situación Fiscal desde el panel de usuario. La factura CFDI correspondiente a tu suscripción se emitirá automáticamente mes con mes tras confirmarse el pago.
+          </p>
+        </details>
+
+        <details class="group bg-[#121826] border border-slate-800 rounded-xl p-6">
+          <summary class="flex items-center justify-between cursor-pointer font-bold text-white list-none">
+            <span>¿Qué pasa con mis datos si decido cancelar el servicio?</span>
+            <span class="text-[#FF7A00] font-bold text-xl group-open:rotate-45 transition-transform">+</span>
+          </summary>
+          <p class="text-sm text-slate-400 mt-3 leading-relaxed">
+            Tu información es siempre tuya. Si decides cancelar la suscripción, la plataforma te permite exportar el catálogo completo de inventario, mermas e historial de recetas a archivos formato Excel antes de formalizar la baja.
+          </p>
+        </details>
+
+        <details class="group bg-[#121826] border border-slate-800 rounded-xl p-6">
+          <summary class="flex items-center justify-between cursor-pointer font-bold text-white list-none">
+            <span>¿Puedo empezar con el plan de $490 y subir al Paquete Pro después?</span>
+            <span class="text-[#FF7A00] font-bold text-xl group-open:rotate-45 transition-transform">+</span>
+          </summary>
+          <p class="text-sm text-slate-400 mt-3 leading-relaxed">
+            Sí. Puedes iniciar con el Plan Operativo Base y actualizar al Paquete Pro en cualquier momento. Toda la información histórica de tu almacén se conservará intacta.
+          </p>
+        </details>
+
+        <details class="group bg-[#121826] border border-slate-800 rounded-xl p-6">
+          <summary class="flex items-center justify-between cursor-pointer font-bold text-white list-none">
+            <span>¿Necesito internet todo el tiempo para usar la plataforma?</span>
+            <span class="text-[#FF7A00] font-bold text-xl group-open:rotate-45 transition-transform">+</span>
+          </summary>
+          <p class="text-sm text-slate-400 mt-3 leading-relaxed">
+            Sí, Gastro-Stock opera como un SaaS 100% en la nube para sincronizar en tiempo real el inventario entre múltiples usuarios y dispositivos. Esto evita discrepancias y garantiza respaldos continuos sin requerir servidores locales.
+          </p>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <!-- CTA Final y Footer -->
+  <footer id="contacto" class="bg-[#121826] border-t border-slate-800 pt-16 pb-10">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div class="bg-gradient-to-r from-[#172033] to-[#0B111E] border border-slate-800 rounded-2xl p-8 sm:p-12 flex flex-col lg:flex-row items-center justify-between gap-8 mb-14">
+        <div>
+          <h2 class="text-2xl sm:text-3xl font-extrabold text-white">Toma el control de tu cocina hoy mismo</h2>
+          <p class="text-slate-400 mt-2 max-w-xl">Solicita tu acceso en menos de un minuto o inicia sesión si ya cuentas con licencia activa.</p>
+        </div>
+        <div class="flex flex-col sm:flex-row gap-4 w-full lg:w-auto">
+          <a href="app.html#solicitar" class="inline-flex items-center justify-center px-7 py-4 rounded-xl bg-[#FF7A00] hover:bg-[#F97316] text-white font-bold text-sm transition-all shadow-lg shadow-orange-600/25">
+            Acceder a la plataforma &gt;
+          </a>
+          <a href="app.html" class="inline-flex items-center justify-center px-7 py-4 rounded-xl bg-[#059669] hover:bg-[#10B981] text-white font-bold text-sm transition-all">
+            Iniciar sesión
+          </a>
+        </div>
+      </div>
+
+      <div class="flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500 border-t border-slate-800/80 pt-8">
+        <div class="flex items-center gap-2">
+          <span class="font-bold text-slate-300">Gastro-Stock</span>
+          <span>· Sistema Operativo Gastronómico</span>
+        </div>
+        <div class="flex items-center gap-6">
+          <a href="https://wa.me/522286076528" target="_blank" rel="noopener" class="hover:text-slate-300 transition-colors">WhatsApp Directo</a>
+          <a href="mailto:rouman75@gmail.com" class="hover:text-slate-300 transition-colors">rouman75@gmail.com</a>
+        </div>
+      </div>
+    </div>
+  </footer>
 
 </body>
 </html>
