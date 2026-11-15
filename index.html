@@ -1675,11 +1675,13 @@ async function copiarId(id, btn) {
 
 /* ---- Solicitudes de acceso (pantalla de inicio de sesión → Panel Master) ---- */
 // Tabla Supabase: solicitudes (id, created_at, nombre_comercial, nombre_responsable, telefono, correo, direccion, plan_interes, estatus, empresa_id)
-// estatus: 'nueva' | 'en_revision' | 'aprobada'   (el SQL está en supabase_solicitudes.sql)
+// estatus: 'nueva' | 'en_revision' | 'aprobada' | 'rechazada'   (el SQL está en supabase_solicitudes.sql; si tiene un CHECK sobre estatus, agrega 'rechazada')
 // Precios mensuales (MXN) que se imprimen en el vale. El select del login tiene el mismo texto fijo en el HTML (#sol_p); si cambias un precio, cámbialo en ambos lugares.
 const PLAN_PRECIO = {basico: 499, pro: 899};
 const planConPrecio = p => `Plan ${planLbl(p)} ($${PLAN_PRECIO[p]}/mes)`;
-const SOL_EST = {nueva: ['Nueva', 'y'], en_revision: ['En revisión', 'o'], aprobada: ['Aprobada', 'g']};
+const SOL_EST = {nueva: ['Nueva', 'y'], en_revision: ['En revisión', 'o'], aprobada: ['Aprobada', 'g'], rechazada: ['Rechazada', 'r']};
+// Las acciones Aprobar / Rechazar solo existen y funcionan con la sesión de la cuenta master (correo Rouman75@gmail.com)
+const esCuentaMaster = () => !!SES && normEmail(SES.email) === normEmail(MASTER_EMAIL);
 let SOLS = [], SOL_ERR = '', SOL_BUSY = false;
 
 function abrirSolicitud() {
@@ -1726,7 +1728,7 @@ function pintarSolicitudes() {
   const rows = SOLS.map((x, i) => {
     const [t, k] = SOL_EST[x.estatus] || [x.estatus || '—', 's'], fecha = String(x.created_at || '').slice(0, 10);
     const acc = `<button class="btn btn-s" onclick="solImprimir(${i})">Imprimir</button> <button class="btn btn-s" onclick="solDescargar(${i})">Descargar</button>` +
-      (x.estatus === 'aprobada' ? '' : ` ${x.estatus === 'nueva' ? `<button class="btn btn-s" onclick="solEstatus(${i}, 'en_revision')">En revisión</button> ` : ''}<button class="btn btn-p" onclick="solAprobar(${i})">Aprobar</button>`);
+      (!esCuentaMaster() || x.estatus === 'aprobada' || x.estatus === 'rechazada' ? '' : ` ${x.estatus === 'nueva' ? `<button class="btn btn-s" onclick="solEstatus(${i}, 'en_revision')">En revisión</button> ` : ''}<button class="btn btn-p" onclick="solAprobar(${i})">Aprobar</button> <button class="btn btn-s" style="color:#fca5a5;border-color:rgba(248,113,113,.45)" onclick="solRechazar(${i})">Rechazar</button>`);
     return `<tr><td class="whitespace-nowrap">${esc(fecha || '—')}</td><td class="font-medium">${esc(x.nombre_comercial)}</td>
       <td>${esc(x.nombre_responsable || '—')}<div class="text-xs text-slate-500">${esc([x.telefono, x.correo].filter(Boolean).join(' · '))}</div>${x.direccion ? `<div class="text-xs text-slate-500">📍 ${esc(x.direccion)}</div>` : ''}</td>
       <td><span class="pill ${x.plan_interes === 'pro' ? 'o' : 's'}">${esc(PLAN_PRECIO[x.plan_interes] != null ? planConPrecio(x.plan_interes) : planLbl(x.plan_interes))}</span></td>
@@ -1734,12 +1736,14 @@ function pintarSolicitudes() {
   }).join('') || '<tr><td colspan="6" class="text-slate-500 text-center py-8">Aún no hay solicitudes.</td></tr>';
   $('#view').innerHTML = head('Panel Master (Licencias)', 'Solicitudes de acceso recibidas desde la pantalla de inicio de sesión.', '<button class="btn btn-s" onclick="render()">Actualizar</button>') +
     (SOL_ERR ? `<p class="text-red-300 text-sm mb-3" role="alert">No se pudo leer la tabla solicitudes: ${esc(SOL_ERR)}. Verifica que exista y revisa sus políticas RLS (supabase_solicitudes.sql).</p>` : '') +
-    `<div class="grid grid-cols-3 gap-3 mb-4 max-w-xl">${card('Nuevas', n('nueva'), 'text-orange-300')}${card('En revisión', n('en_revision'), 'text-yellow-300')}${card('Aprobadas', n('aprobada'), 'text-emerald-300')}</div>` +
+    `<div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4 max-w-2xl">${card('Nuevas', n('nueva'), 'text-orange-300')}${card('En revisión', n('en_revision'), 'text-yellow-300')}${card('Aprobadas', n('aprobada'), 'text-emerald-300')}${card('Rechazadas', n('rechazada'), 'text-red-300')}</div>` +
     table(['Fecha', 'Nombre comercial', 'Responsable', 'Plan', 'Estatus', ''], rows) +
-    '<p class="text-xs text-slate-500 mt-3">Imprime o descarga cada solicitud para contactar al cliente por teléfono o visita. Pasa la solicitud a «En revisión» mientras das seguimiento y pulsa «Aprobar» cuando quede atendida: solo cambia el estatus, no crea cuentas. El alta de la licencia se hace manualmente en la pestaña Restaurantes, con «Registrar nuevo restaurante».</p>';
+    '<p class="text-xs text-slate-500 mt-3">Imprime o descarga cada solicitud para contactar al cliente por teléfono o visita. Pasa la solicitud a «En revisión» mientras das seguimiento y pulsa «Aprobar» cuando quede atendida o «Rechazar» si no procede: solo cambian el estatus, no crean cuentas. El alta de la licencia se hace manualmente en la pestaña Restaurantes, con «Registrar nuevo restaurante».</p>';
 }
 async function solEstatus(i, estatus) {
-  const x = SOLS[i]; if (!x || SOL_BUSY) return; SOL_BUSY = true;
+  const x = SOLS[i]; if (!x || SOL_BUSY) return;
+  if (!esCuentaMaster()) return alert('Solo la cuenta master puede cambiar el estatus de las solicitudes.');
+  SOL_BUSY = true;
   try {
     const r = await sb.from('solicitudes').update({estatus}).eq('id', x.id).select(); if (r.error) throw r.error;
     if (!r.data || !r.data.length) throw new Error('no se guardó ningún cambio (revisa las políticas RLS de solicitudes)');
@@ -1748,7 +1752,12 @@ async function solEstatus(i, estatus) {
   finally { SOL_BUSY = false; }
 }
 function solAprobar(i) {   // solo marca la solicitud como aprobada/atendida; no crea empresas ni usuarios
+  if (!esCuentaMaster()) return;
   const x = SOLS[i]; if (x && confirm(`¿Marcar la solicitud de «${x.nombre_comercial}» como aprobada? Esto solo cambia su estatus; el alta de la licencia la haces tú en Restaurantes.`)) return solEstatus(i, 'aprobada');
+}
+function solRechazar(i) {   // solo marca la solicitud como rechazada; no borra el registro ni crea nada
+  if (!esCuentaMaster()) return;
+  const x = SOLS[i]; if (x && confirm(`¿Rechazar la solicitud de «${x.nombre_comercial}»? Quedará con estatus Rechazada y ya no podrás aprobarla.`)) return solEstatus(i, 'rechazada');
 }
 /* Vale imprimible / descargable de la solicitud (para revisarla, llevarla o dar seguimiento por teléfono o visita) */
 function solVale(x) {
