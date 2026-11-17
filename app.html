@@ -335,7 +335,9 @@ async function traer(tabla, cols, filtro) {
   return out;
 }
 async function descargarNube() {
-  const [fi, fp, fe, fv] = await Promise.all([traer('insumos'), traer('productos_menu', '*', q => q.or('activo.is.null,activo.eq.true')), traer('escandallos'), traer('ventas_pos', 'id,producto_id,fecha_venta')]);
+  // Licencia académica: la RLS deja leer todo el plantel al profesor (auditoría); aquí solo se carga su propio inventario. La información de las brigadas se consulta en «Auditoría de Brigadas».
+  const own = (SES && SES.rol === 'cliente' && esAcademica()) ? (q => q.eq('user_id', SES.uid)) : null;
+  const [fi, fp, fe, fv] = await Promise.all([traer('insumos', '*', own), traer('productos_menu', '*', q => { q = q.or('activo.is.null,activo.eq.true'); return own ? own(q) : q; }), traer('escandallos', '*', own), traer('ventas_pos', 'id,producto_id,fecha_venta', own)]);
   const insumos = fi.map(insDeFila), ids = new Set(insumos.map(i => i.id)), prodIds = new Set(fp.map(p => p.id)), porProd = {};
   fe.forEach(e => { if (!ids.has(e.insumo_id)) return; const L = porProd[e.producto_id] = porProd[e.producto_id] || {}; L[e.insumo_id] = (L[e.insumo_id] || 0) + (+e.cantidad_neta || 0); });
   const recetas = fp.map(p => recDeFila(p, Object.keys(porProd[p.id] || {}).map(k => ({id: k, c: porProd[p.id][k]}))));
@@ -509,6 +511,8 @@ const MODULOS = [
   {k: 'recepciones', ico: '📥', t: 'Recepción de Proveedor',  tt: 'Recepción de Proveedor',         v: () => vRecepciones(), roles: ['superadmin', 'cliente'],          pro: true},
   {k: 'estimacion', ico: '🧮', t: 'Estimación de Compras', tt: 'Estimación de Compras',        v: () => vEstimacion(), roles: ['superadmin', 'cliente'],       pro: true},
   {k: 'recetas',   ico: '📋', t: 'Recetas y Rendimiento',   tt: 'Recetas y Rendimiento Estimado', v: () => vRecetas(),   roles: ['superadmin', 'cliente', 'cocina'], pro: true},
+  {k: 'eventos',  ico: '🎉', t: 'Eventos',                tt: 'Eventos y Banquetes',            v: () => EV.entrar(),  roles: ['superadmin', 'cliente', 'cocina'], pro: true},   // cocina solo en licencia académica (accesoExtra)
+  {k: 'brigadas', ico: '🎓', t: 'Auditoría de Brigadas',   tt: 'Auditoría de Brigadas',          v: () => BR.entrar(),  roles: ['cliente'],                          pro: true},   // solo cliente en licencia académica (accesoExtra)
   // ► Para agregar otro módulo Pro basta una línea aquí, por ejemplo:
   //   {k: 'nuevo', ico: '✨', t: 'Nombre corto', tt: 'Nombre completo', v: () => vNuevo(), roles: ['superadmin', 'cliente'], pro: true},
   //   y definir su función vNuevo(). El menú, el bloqueo por plan y el acceso por perfil se generan solos desde este registro.
@@ -518,11 +522,16 @@ const MODULOS = [
   {k: 'ajustes',   ico: '⚙️', t: 'Ajustes',                  v: () => vAjustes(),   roles: ['superadmin', 'cliente'], sys: true}
 ];
 const modulo = k => MODULOS.find(m => m.k === k);
+// Licencia académica (empresas.tipo_licencia): brigadas aisladas entre sí; el cliente es el profesor / administrador del plantel
+const esAcademica = (u = SES) => !!u && !!u.emp && String(u.emp.tipo_licencia || '').trim().toLowerCase() === 'academica';
+const brigadaDe = (u = SES) => String((u && u.perfil && u.perfil.brigada) || '').trim();
+// Reglas por módulo además de roles: Eventos para operativos (cocina) solo en licencia académica; Auditoría de Brigadas solo para el cliente en licencia académica
+const accesoExtra = mo => mo.k === 'eventos' ? (SES.rol !== 'cocina' || esAcademica()) : mo.k === 'brigadas' ? (SES.rol === 'cliente' && esAcademica()) : true;
 const esProMod = k => !!(modulo(k) && modulo(k).pro);
 const planDe = e => /^pro$/i.test(String((e && e.plan) || '').trim()) ? 'pro' : 'basico';   // 'basico' | 'pro' (cualquier otro valor heredado cuenta como básico)
 const tienePro = () => !!SES && (SES.rol === 'superadmin' || planDe(SES.emp) === 'pro');
-const puede = m => !!SES && !!modulo(m) && modulo(m).roles.includes(SES.rol);                // acceso por perfil
-const navVisible = mo => !!SES && mo.roles.includes(SES.rol) && !(mo.pro && SES.rol === 'cocina' && !tienePro());   // el perfil operativo no ve el aviso de módulos Pro
+const puede = m => !!SES && !!modulo(m) && modulo(m).roles.includes(SES.rol) && accesoExtra(modulo(m));                // acceso por perfil
+const navVisible = mo => !!SES && mo.roles.includes(SES.rol) && accesoExtra(mo) && !(mo.pro && SES.rol === 'cocina' && !tienePro());   // el perfil operativo no ve el aviso de módulos Pro
 const primerModulo = () => { const mo = MODULOS.find(x => navVisible(x) && (!x.pro || tienePro())); return mo ? mo.k : 'insumos'; };
 
 function pintarNav() {
@@ -1083,9 +1092,9 @@ function applyRole() {
   document.querySelectorAll('.probadge').forEach(e => e.classList.toggle('hidden', pro));
   document.querySelectorAll('.licind').forEach(e => e.classList.toggle('hidden', !master));
   const pi = $('#planInd'); if (!pi) return;
-  const ver = !!SES && !master && SES.rol !== 'cocina';
+  const ac = !!SES && !master && esAcademica(), ver = !!SES && !master && (SES.rol !== 'cocina' || ac);
   pi.className = ver ? 'pill text-center py-1.5 ' + (pro ? 'o' : 's') : 'hidden';
-  pi.textContent = ver ? 'Plan ' + (pro ? 'Pro' : 'Básico') : '';
+  pi.textContent = ver ? (ac ? 'Licencia Académica' + (brigadaDe() ? ' · ' + brigadaDe() : '') : 'Plan ' + (pro ? 'Pro' : 'Básico')) : '';
 }
 
 /* ============ 10. AUDITORÍA DE INVENTARIO (PRO) ============ */
@@ -1194,6 +1203,7 @@ async function salir() {
   try { for (let n = 0; SYNCING && n < 20; n++) await new Promise(r => setTimeout(r, 250)); if (sb && SES && SNAP) await sincronizar(); } catch (e) {}
   try { if (sb) await sb.auth.signOut({scope: 'local'}); } catch (e) {}
   SES = null; AUTH_UID = null; DATOS_UID = null; SNAP = null; S = {}; normalizarS();
+  try { EV.reset(); BR.reset(); } catch (e) {}
   try { sessionStorage.removeItem('gastro_bypass'); } catch (e) {}
   closeModal(); ocultarBloqueo(); $('#view').innerHTML = ''; setEstado('', 'g'); mostrarLogin(true);
 }
@@ -1206,7 +1216,7 @@ function applyAcceso() {
   document.querySelectorAll('.nav[data-m]').forEach(b => b.classList.toggle('hidden', !navVisible(modulo(b.dataset.m))));
   document.querySelectorAll('.prohdr').forEach(e => e.classList.toggle('hidden', !MODULOS.some(mo => mo.pro && navVisible(mo))));
   $('#topBypass').classList.toggle('hidden', !bypass());
-  $('#topUser').textContent = SES ? SES.nombre : '';
+  $('#topUser').textContent = SES ? SES.nombre + (esAcademica() && brigadaDe() ? ' · Brigada ' + brigadaDe() : '') : '';
   applyRole();
 }
 async function arrancar() {
@@ -1598,7 +1608,7 @@ function accionPropietario(a) {
 }
 
 /* ---- Panel Master (Licencias): solo rol master. Lee y escribe la tabla empresas ---- */
-let EMPS = [], EMP_ERR = '', EMP_BUSY = false;
+let EMPS = [], EMP_ERR = '', EMP_BUSY = false, EMP_USO = null;   // EMP_USO: usuarios por empresa (perfiles), si el master puede leerlos
 const ordenarEmps = () => EMPS.sort((a, b) => String(a.nombre || '').localeCompare(String(b.nombre || ''), 'es'));
 async function cargarEmpresas() {
   EMP_ERR = '';
@@ -1606,6 +1616,8 @@ async function cargarEmpresas() {
     if (!sb) throw new Error('sin conexión con Supabase');
     const r = await sb.from('empresas').select('*'); if (r.error) throw r.error;
     EMPS = r.data || []; ordenarEmps();
+    EMP_USO = null;   // conteo de usuarios por empresa (solo informativo: si la política RLS no lo permite, el panel muestra únicamente el límite)
+    try { const pf = await traer('perfiles', 'id,empresa_id'); if (pf.length) { EMP_USO = {}; pf.forEach(p => { if (p.empresa_id) EMP_USO[p.empresa_id] = (EMP_USO[p.empresa_id] || 0) + 1; }); } } catch (x) { EMP_USO = null; }
   } catch (e) { EMP_ERR = errMsg(e); EMPS = []; console.error('Supabase empresas:', e); }
 }
 let LIC_TAB = 'restaurantes';
@@ -1620,6 +1632,12 @@ function pintarLicencias() {
   if (h) h.insertAdjacentHTML('afterend', `<div class="flex gap-2 mb-4" role="tablist"><button role="tab" class="btn pilltab ${LIC_TAB === 'restaurantes' ? 'btn-p' : 'btn-s'}" onclick="licTab('restaurantes')">Restaurantes</button><button role="tab" class="btn pilltab ${LIC_TAB === 'solicitudes' ? 'btn-p' : 'btn-s'}" onclick="licTab('solicitudes')">Solicitudes${nuevas ? ` (${nuevas} nueva${nuevas > 1 ? 's' : ''})` : ''}</button></div>`);
 }
 function licTab(t) { LIC_TAB = t; pintarLicencias(); }
+const tipoLic = e => String((e && e.tipo_licencia) || 'comercial').trim().toLowerCase() === 'academica' ? 'academica' : 'comercial';
+function tipoCelda(e) {
+  const ac = tipoLic(e) === 'academica', lim = e.limite_usuarios != null && e.limite_usuarios !== '' ? +e.limite_usuarios : null, uso = EMP_USO ? (EMP_USO[e.id] || 0) : null;
+  const L = [ac ? [e.plantel, e.correo_institucional].filter(Boolean).join(' · ') : '', lim != null ? 'Usuarios: ' + (uso != null ? uso + ' / ' : 'máx. ') + lim : ''].filter(Boolean);
+  return `<td><span class="pill ${ac ? 'g' : 's'}">${ac ? 'Académica' : 'Comercial'}</span>${L.map(x => `<div class="text-xs text-slate-500">${esc(x)}</div>`).join('')}</td>`;
+}
 function pintarRestaurantes() {
   const n = t => EMPS.filter(e => estadoEmp(e)[0] === t).length;
   const card = (t, v, c) => `<div class="bg-[#0b0f19] border border-slate-800 rounded-2xl p-3"><div class="text-slate-400 text-xs">${t}</div><div class="brand text-2xl font-bold ${c}">${v}</div></div>`;
@@ -1627,18 +1645,18 @@ function pintarRestaurantes() {
   const rows = EMPS.map((e, i) => {
     const [t, k] = estadoEmp(e), v = empVence(e), d = v ? dias(v) : null, pro = String(e.plan || '').trim().toLowerCase() === 'pro';
     return `<tr><td class="font-medium">${esc(e.nombre)}${sub([e.razon_social, e.rfc].filter(Boolean).join(' · '))}</td>
-      <td><span class="pill ${pro ? 'o' : 's'}">${esc(planLbl(e.plan))}</span></td>
+      <td><span class="pill ${pro ? 'o' : 's'}">${esc(planLbl(e.plan))}</span></td>${tipoCelda(e)}
       <td>${esc(e.contacto_nombre || '—')}${sub([e.contacto_email, e.telefono].filter(Boolean).join(' · '))}</td>
       <td><span class="pill ${k}">${t}</span></td><td>${v || '—'}</td>
       <td class="${d !== null && d < 0 ? 'text-red-300' : d !== null && d <= 7 ? 'text-orange-300' : ''}">${d === null ? '—' : d < 0 ? `Venció hace ${-d} d` : `${d} d`}</td>
       <td class="whitespace-nowrap"><button class="btn btn-s" onclick="empToggle(${i})">${empActiva(e) ? 'Suspender' : 'Activar'}</button> <button class="btn btn-s" onclick="empExtender(${i})">+30 días</button> <button class="btn btn-s" onclick="formEmpresa(${i})">Editar</button> <button class="btn btn-s" data-id="${esc(e.id)}" onclick="copiarId(this.dataset.id, this)">Copiar ID</button></td></tr>`;
-  }).join('') || `<tr><td colspan="7" class="text-slate-500 text-center py-8">Aún no hay restaurantes registrados.</td></tr>`;
+  }).join('') || `<tr><td colspan="8" class="text-slate-500 text-center py-8">Aún no hay restaurantes registrados.</td></tr>`;
   $('#view').innerHTML = head('Panel Master (Licencias)', 'Restaurantes registrados, plan, estatus y fecha de vencimiento.',
       `<button class="btn btn-s" onclick="render()">Actualizar</button><button class="btn btn-p" onclick="formEmpresa(-1)">Registrar nuevo restaurante</button>`) +
     (EMP_ERR ? `<p class="text-red-300 text-sm mb-3" role="alert">No se pudo leer la tabla empresas: ${esc(EMP_ERR)}. Revisa tu conexión y las políticas RLS en Supabase.</p>` : '') +
     `<div class="grid grid-cols-3 gap-3 mb-4 max-w-xl">${card('Activas', n('Activa'), 'text-emerald-300')}${card('Vencidas', n('Vencida'), 'text-orange-300')}${card('Suspendidas', n('Suspendida'), 'text-red-300')}</div>` +
-    table(['Restaurante', 'Plan', 'Contacto', 'Estatus', 'Vencimiento', 'Días', ''], rows) +
-    `<p class="text-xs text-slate-500 mt-3">Los usuarios de cada restaurante se vinculan con perfiles.empresa_id (usa «Copiar ID»). Un usuario cuya empresa esté suspendida o vencida ve la pantalla de licencia al iniciar sesión. El plan «Pro» habilita el Paquete Pro: Auditoría de Inventario, Recepción de Proveedor, Estimación de Compras y Recetas y Rendimiento Estimado.</p>`;
+    table(['Restaurante', 'Plan', 'Tipo de licencia', 'Contacto', 'Estatus', 'Vencimiento', 'Días', ''], rows) +
+    `<p class="text-xs text-slate-500 mt-3">Los usuarios de cada restaurante se vinculan con perfiles.empresa_id (usa «Copiar ID»). Un usuario cuya empresa esté suspendida o vencida ve la pantalla de licencia al iniciar sesión. El plan «Pro» habilita el Paquete Pro: Auditoría de Inventario, Recepción de Proveedor, Estimación de Compras y Recetas y Rendimiento Estimado. La licencia «Académica» fuerza el plan Pro, habilita Eventos y la Auditoría de Brigadas, y limita las cuentas con el límite de usuarios.</p>`;
 }
 // Cambio de una sola columna con un clic (estatus o vencimiento)
 async function empCambiar(i, cambios, texto) {
@@ -1652,8 +1670,19 @@ async function empCambiar(i, cambios, texto) {
   finally { EMP_BUSY = false; }
 }
 function empToggle(i) { const e = EMPS[i]; if (e) return empCambiar(i, {estatus: empActiva(e) ? 'suspendido' : 'activo'}, x => empActiva(x) ? 'activado' : 'suspendido'); }
-function empExtender(i) {   // +30 días sobre el vencimiento actual; si ya venció (o no tiene fecha), cuenta desde hoy
-  const e = EMPS[i]; if (!e) return; const v = empVence(e);
+async function empExtender(i) {   // +30 días con la RPC extender_licencia(p_empresa, p_dias); si falla, se actualiza fecha_vencimiento directamente
+  const e = EMPS[i]; if (!e || EMP_BUSY) return;
+  EMP_BUSY = true; let hecho = false;
+  try {
+    const r = await sb.rpc('extender_licencia', {p_empresa: e.id, p_dias: 30}); if (r.error) throw r.error;
+    hecho = true;
+  } catch (x) { sbLog('rpc extender_licencia', x, {p_empresa: e.id, p_dias: 30}); }
+  if (hecho) {
+    try { const q = await sb.from('empresas').select('*').eq('id', e.id).maybeSingle(); if (q.error) throw q.error; if (q.data) Object.assign(e, q.data); } catch (x) { sbLog('empresas.select', x, {id: e.id}); }
+    EMP_BUSY = false; pintarLicencias(); return toast(`${e.nombre}: vence ${empVence(e)}`);
+  }
+  EMP_BUSY = false;
+  const v = empVence(e);   // respaldo: +30 días sobre el vencimiento actual; si ya venció (o no tiene fecha), cuenta desde hoy
   return empCambiar(i, {fecha_vencimiento: addDias(v && v >= today() ? v : today(), 30)}, x => 'vence ' + empVence(x));
 }
 
@@ -1673,18 +1702,42 @@ function formEmpresa(i) {
     ${field('Plan', `<select class="inp" id="em_pl">${planes.map(p => `<option value="${esc(p)}" ${p === sel ? 'selected' : ''}>${esc(planLbl(p))}</option>`).join('')}</select>`)}
     ${field('Estatus', `<select class="inp" id="em_s"><option value="activo" ${!e || empActiva(e) ? 'selected' : ''}>Activo</option><option value="suspendido" ${e && !empActiva(e) ? 'selected' : ''}>Suspendido</option></select>`)}
     <div class="sm:col-span-2">${field('Fecha de vencimiento', `<input class="inp" id="em_v" type="date" value="${e ? empVence(e) : addDias(today(), 30)}">`)}</div>
+    ${field('Tipo de licencia', `<select class="inp" id="em_tl" onchange="empTipoCambio()"><option value="comercial" ${!e || tipoLic(e) === 'comercial' ? 'selected' : ''}>Comercial</option><option value="academica" ${e && tipoLic(e) === 'academica' ? 'selected' : ''}>Académica (escuela / plantel)</option></select>`)}
+    ${field('Límite de usuarios (vacío = sin límite)', `<input class="inp" id="em_lu" type="number" min="1" step="1" value="${val('limite_usuarios')}" placeholder="Ej. 40">`)}
+    <div id="em_acad" class="sm:col-span-2 grid sm:grid-cols-2 gap-3">
+      ${field('Plantel *', `<input class="inp" id="em_pt" type="text" maxlength="120" value="${val('plantel')}" placeholder="Ej. Instituto Gastronómico Veracruz" autocomplete="off">`)}
+      ${field('Correo institucional', `<input class="inp" id="em_ci" type="email" value="${val('correo_institucional')}" placeholder="coordinacion@plantel.edu.mx" autocomplete="off">`)}
+      <p class="sm:col-span-2 text-xs text-slate-400">La licencia académica fuerza el Plan Pro, activa Eventos y la Auditoría de Brigadas, y aísla la información de cada brigada.</p>
+    </div>
   </div>
   <p id="em_err" class="text-red-400 text-sm mt-2" role="alert"></p>
   <div class="flex justify-end gap-2 mt-4"><button class="btn btn-s" onclick="closeModal()">Cancelar</button><button class="btn btn-p" onclick="guardarEmpresa(${i})">${e ? 'Guardar cambios' : 'Registrar restaurante'}</button></div>`);
+  empTipoCambio();
+}
+// Licencia académica: muestra plantel / correo institucional y fija el plan en Pro (el trigger de Supabase también lo fuerza)
+function empTipoCambio() {
+  const ac = !!$('#em_tl') && $('#em_tl').value === 'academica', b = $('#em_acad'), p = $('#em_pl');
+  if (b) b.style.display = ac ? '' : 'none';
+  if (p) { if (ac) p.value = 'pro'; p.disabled = ac; }
 }
 async function guardarEmpresa(i) {
   const err = m => { const p = $('#em_err'); if (p) p.textContent = m; };
   const v = id => ($('#' + id).value || '').trim(), nul = x => x || null;
   const d = {nombre: v('em_n'), razon_social: nul(v('em_rs')), rfc: nul(v('em_rfc').toUpperCase()), contacto_nombre: nul(v('em_cn')),
     contacto_email: nul(normEmail(v('em_ce'))), telefono: nul(v('em_tel')), plan: $('#em_pl').value, estatus: $('#em_s').value, fecha_vencimiento: $('#em_v').value};
+  const tl = $('#em_tl').value === 'academica' ? 'academica' : 'comercial', lu = v('em_lu');
+  d.tipo_licencia = tl; d.limite_usuarios = lu === '' ? null : parseInt(lu, 10);
+  d.plantel = tl === 'academica' ? nul(v('em_pt')) : null; d.correo_institucional = tl === 'academica' ? nul(normEmail(v('em_ci'))) : null;
+  if (tl === 'academica') d.plan = 'pro';
   if (!d.nombre) return err('Escribe el nombre comercial.');
   if (d.contacto_email && !EMAIL_RE.test(d.contacto_email)) return err('El correo principal no es válido.');
   if (!d.fecha_vencimiento) return err('Elige la fecha de vencimiento.');
+  if (lu !== '' && !(d.limite_usuarios >= 1)) return err('El límite de usuarios debe ser un número entero mayor o igual a 1 (o déjalo vacío).');
+  if (tl === 'academica') {
+    if (!d.plantel) return err('Escribe el nombre del plantel.');
+    if (!(d.limite_usuarios >= 1)) return err('Define el límite de usuarios de la licencia académica.');
+    if (d.correo_institucional && !EMAIL_RE.test(d.correo_institucional)) return err('El correo institucional no es válido.');
+  }
   if (EMPS.some((x, j) => j !== i && String(x.nombre || '').trim().toLowerCase() === d.nombre.toLowerCase())) return err('Ya existe un restaurante con ese nombre.');
   if (EMP_BUSY) return;
   EMP_BUSY = true; err('Guardando…');
@@ -2270,11 +2323,31 @@ const eqRolValido = r => Object.keys(ROLES_EQ).includes(r);
 let EQ = [], EQ_ERR = '', EQ_BUSY = false;
 // Solo el administrador (cliente) de una empresa activa: el Master no gestiona equipos aquí
 const eqVisible = () => !!SES && SES.rol === 'cliente' && !!SES.perfil && SES.perfil.empresa_id != null && SES.perfil.empresa_id !== '' && empOk(SES.emp);
+let EQ_CUPO = null;
 function cardEquipo() {
   if (!eqVisible()) return '';
-  return `<div class="bg-[#0b0f19] border border-slate-800 rounded-2xl p-4"><div class="flex flex-wrap items-start justify-between gap-2"><div><h2 class="brand font-bold">Equipo y Accesos</h2>
-    <p class="text-sm text-slate-400 mt-1">Da de alta al personal operativo (cocina, almacén, barra) de tu restaurante. Quedan vinculados a tu empresa y solo ven los módulos operativos.</p></div>
+  const ac = esAcademica();
+  return `<div class="bg-[#0b0f19] border border-slate-800 rounded-2xl p-4"><div class="flex flex-wrap items-start justify-between gap-2"><div><h2 class="brand font-bold">${ac ? 'Alumnos, Brigadas y Accesos' : 'Equipo y Accesos'}</h2>
+    <p class="text-sm text-slate-400 mt-1">${ac ? 'Da de alta a los integrantes de cada brigada de tu plantel. Cada brigada trabaja aislada de las demás; tú las revisas desde «Auditoría de Brigadas».' : 'Da de alta al personal operativo (cocina, almacén, barra) de tu restaurante. Quedan vinculados a tu empresa y solo ven los módulos operativos.'}</p>
+    <p id="eqCupo" class="text-xs mt-2 text-slate-400"></p></div>
     <button class="btn btn-p" onclick="formEquipo()">Agregar usuario</button></div><div id="eqBody" class="mt-3"><p class="text-slate-400 text-sm">Cargando equipo…</p></div></div>`;
+}
+// Cupo de usuarios: RPC cupo_usuarios(); si no responde o no se entiende, se cuenta contra empresas.limite_usuarios (el trigger perfiles_validar_limite sigue siendo la barrera final)
+async function eqCupo() {
+  const emp = SES.perfil.empresa_id, lim = SES.emp && SES.emp.limite_usuarios != null && SES.emp.limite_usuarios !== '' ? +SES.emp.limite_usuarios : null;
+  try {
+    const r = await sb.rpc('cupo_usuarios'); if (r.error) throw r.error;
+    const c = cupoNorm(r.data); if (c) return c;
+    sbLog('rpc cupo_usuarios (respuesta no reconocida)', {message: JSON.stringify(r.data)});
+  } catch (e) { sbLog('rpc cupo_usuarios', e); }
+  let usados = EQ.length;
+  try { const q = await sb.from('perfiles').select('id', {count: 'exact', head: true}).eq('empresa_id', emp); if (!q.error && q.count != null) usados = q.count; } catch (e) {}
+  return {usados, limite: lim, disp: lim == null ? null : lim - usados, ok: lim == null || usados < lim};
+}
+function pintarCupo() {
+  const x = $('#eqCupo'); if (!x) return; const c = EQ_CUPO;
+  const t = !c ? '' : (c.limite != null && c.usados != null) ? `Cupo de usuarios: ${c.usados} de ${c.limite}` : c.disp != null ? `Cupos disponibles: ${Math.max(0, c.disp)}` : '';
+  x.className = 'text-xs mt-2 ' + (c && !c.ok ? 'text-orange-300' : 'text-slate-400'); x.textContent = t ? t + (c.ok ? '' : ' · límite alcanzado') : '';
 }
 async function cargarEquipo() {
   EQ_ERR = '';
@@ -2284,19 +2357,37 @@ async function cargarEquipo() {
     EQ = (r.data || []).sort((a, b) => String(a.email || '').localeCompare(String(b.email || ''), 'es'));
   } catch (e) { EQ_ERR = errMsg(e); EQ = []; console.error('Supabase perfiles:', e); }
   if (mod === 'ajustes') pintarEquipo();
+  eqCupo().then(c => { EQ_CUPO = c; if (mod === 'ajustes') pintarCupo(); }).catch(() => {});
 }
 function pintarEquipo() {
   const bx = $('#eqBody'); if (!bx || !SES) return;
+  const ac = esAcademica(), brigs = [...new Set(EQ.map(p => String(p.brigada || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
   const rows = EQ.map((p, i) => {
     const r = rolApp(p.rol), admin = r === 'cliente' || r === 'superadmin' || p.id === SES.uid, k = String(p.rol || '').trim().toLowerCase();
     const sel = eqRolValido(k) ? k : (r === 'sinacceso' ? 'baja' : 'cocina');
     const ctl = admin ? '<span class="pill o">Administrador</span>'
       : `<select class="inp max-w-[11rem]" aria-label="Rol de ${esc(verUsuario(p.email))}" onchange="eqRol(${i}, this.value)">${[...Object.keys(ROLES_EQ), 'baja'].map(x => `<option value="${x}" ${x === sel ? 'selected' : ''}>${x === 'baja' ? 'Sin acceso' : ROLES_EQ[x]}</option>`).join('')}</select>`;
-    return `<tr><td class="font-medium">${esc(verUsuario(p.email) || '—')}${p.id === SES.uid ? ' <span class="pill s">Tú</span>' : ''}</td><td>${ctl}</td><td>${admin ? '—' : r === 'sinacceso' ? '<span class="pill r">Sin acceso</span>' : '<span class="pill g">Activo</span>'}</td><td class="whitespace-nowrap">${admin ? '—' : `<button class="btn btn-s" style="color:#fca5a5" title="Eliminar usuario" aria-label="Eliminar usuario ${esc(verUsuario(p.email))}" onclick="eqEliminar(${i})">🗑 Eliminar</button>`}</td></tr>`;
+    const brig = !ac ? '' : `<td>${admin ? '—' : `<input class="inp max-w-[11rem]" list="dl_brig" maxlength="40" value="${esc(p.brigada || '')}" placeholder="Brigada" aria-label="Brigada de ${esc(verUsuario(p.email))}" onchange="eqBrigada(${i}, this.value)">`}</td>`;
+    return `<tr><td class="font-medium">${esc(verUsuario(p.email) || '—')}${p.id === SES.uid ? ' <span class="pill s">Tú</span>' : ''}</td><td>${ctl}</td>${brig}<td>${admin ? '—' : r === 'sinacceso' ? '<span class="pill r">Sin acceso</span>' : '<span class="pill g">Activo</span>'}</td><td class="whitespace-nowrap">${admin ? '—' : `<button class="btn btn-s" style="color:#fca5a5" title="Eliminar usuario" aria-label="Eliminar usuario ${esc(verUsuario(p.email))}" onclick="eqEliminar(${i})">🗑 Eliminar</button>`}</td></tr>`;
   }).join('');
   bx.innerHTML = (EQ_ERR ? `<p class="text-red-300 text-sm mb-2" role="alert">No se pudo leer el equipo: ${esc(EQ_ERR)}. Revisa tu conexión y las políticas RLS de perfiles en Supabase.</p>` : '') +
-    table(['Usuario', 'Rol', 'Estado', 'Acciones'], rows) +
-    `<p class="text-xs text-slate-500 mt-2">«Sin acceso» desactiva al usuario: verá el aviso de bloqueo al iniciar sesión. Para reactivarlo, vuelve a asignarle un rol. «Eliminar» borra la cuenta de forma definitiva y libera el nombre de usuario.</p>`;
+    table(['Usuario', 'Rol', ...(ac ? ['Brigada'] : []), 'Estado', 'Acciones'], rows) +
+    (ac ? `<datalist id="dl_brig">${brigs.map(b => `<option value="${esc(b)}"></option>`).join('')}</datalist>` : '') +
+    `<p class="text-xs text-slate-500 mt-2">«Sin acceso» desactiva al usuario: verá el aviso de bloqueo al iniciar sesión. Para reactivarlo, vuelve a asignarle un rol. «Eliminar» borra la cuenta de forma definitiva y libera el nombre de usuario.${ac ? ' La etiqueta de brigada define a qué equipo pertenece cada alumno en la Auditoría de Brigadas.' : ''}</p>`;
+  pintarCupo();
+}
+async function eqBrigada(i, val) {
+  const p = EQ[i]; if (!p || EQ_BUSY || !eqVisible() || !esAcademica()) return;
+  const r = rolApp(p.rol); if (p.id === SES.uid || r === 'cliente' || r === 'superadmin') return pintarEquipo();
+  val = String(val || '').trim().slice(0, 40);
+  if (!val) { toast('La brigada no puede quedar vacía'); return pintarEquipo(); }
+  EQ_BUSY = true;
+  try {
+    const x = await sb.from('perfiles').update({brigada: val}).eq('id', p.id).eq('empresa_id', SES.perfil.empresa_id).select(); if (x.error) throw x.error;
+    if (!x.data || !x.data.length) throw new Error('no se guardó ningún cambio (revisa las políticas RLS de perfiles)');
+    Object.assign(p, x.data[0]); toast(`${verUsuario(p.email)}: brigada «${val}»`);
+  } catch (e) { sbLog('perfiles.update (brigada)', e, {id: p.id, brigada: val}); alert('No se pudo actualizar la brigada: ' + errMsg(e)); }
+  finally { EQ_BUSY = false; pintarEquipo(); }
 }
 async function eqRol(i, rol) {
   const p = EQ[i]; if (!p || EQ_BUSY || !eqVisible()) return;
@@ -2329,26 +2420,34 @@ async function eqEliminar(i) {
 }
 function formEquipo() {
   if (!eqVisible()) return;
-  openModal(`<h2 class="brand text-xl font-bold mb-4">Agregar usuario operativo</h2>
+  const ac = esAcademica(), brigs = [...new Set(EQ.map(p => String(p.brigada || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'));
+  openModal(`<h2 class="brand text-xl font-bold mb-4">${ac ? 'Agregar alumno / integrante' : 'Agregar usuario operativo'}</h2>
   <div class="grid sm:grid-cols-2 gap-3">
-    <div class="sm:col-span-2">${field('Nombre de usuario (sin correo)', `<input class="inp" id="eq_e" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="30" placeholder="Ej. cocina, barra, almacen">`)}</div>
+    <div class="sm:col-span-2">${field('Nombre de usuario (sin correo)', `<input class="inp" id="eq_e" type="text" autocomplete="off" autocapitalize="none" spellcheck="false" maxlength="30" placeholder="${ac ? 'Ej. brigada-a-lopez' : 'Ej. cocina, barra, almacen'}">`)}</div>
     ${field('Contraseña temporal (mín. 8 caracteres)', `<div class="flex gap-2"><input class="inp" id="eq_p" type="password" autocomplete="new-password"><button type="button" class="btn btn-s" aria-label="Mostrar u ocultar contraseña" onclick="const x=$('#eq_p');x.type=x.type==='password'?'text':'password'">👁</button></div>`)}
     ${field('Rol', `<select class="inp" id="eq_r">${Object.keys(ROLES_EQ).map(k => `<option value="${k}">${ROLES_EQ[k]}</option>`).join('')}</select>`)}
+    ${ac ? `<div class="sm:col-span-2">${field('Brigada *', `<input class="inp" id="eq_b" list="dl_brig2" maxlength="40" autocomplete="off" placeholder="Ej. Brigada A"><datalist id="dl_brig2">${brigs.map(b => `<option value="${esc(b)}"></option>`).join('')}</datalist>`)}</div>` : ''}
   </div>
-  <p class="text-xs text-slate-400 mt-2">El usuario se vincula automáticamente a tu restaurante y solo verá los módulos operativos. Compártele su contraseña por un medio seguro.</p>
+  <p class="text-xs text-slate-400 mt-2">${ac ? 'El usuario se vincula a tu plantel y solo verá la información de su propia brigada.' : 'El usuario se vincula automáticamente a tu restaurante y solo verá los módulos operativos.'} Compártele su contraseña por un medio seguro.</p>
   <p id="eq_err" class="text-red-400 text-sm mt-2" role="alert"></p>
   <div class="flex justify-end gap-2 mt-4"><button class="btn btn-s" onclick="closeModal()">Cancelar</button><button class="btn btn-p" id="eq_ok" onclick="crearSubusuario()">Crear usuario</button></div>`);
 }
 async function crearSubusuario() {
   const err = m => { const p = $('#eq_err'); if (p) p.textContent = m; };
   if (!eqVisible()) return err('Tu empresa no está activa.');
+  const ac = esAcademica(), brigada = ac ? String(($('#eq_b') || {}).value || '').trim().slice(0, 40) : '';
   const usuario = normUsuario($('#eq_e').value), email = usuarioAEmail(usuario), pass = $('#eq_p').value, rol = $('#eq_r').value, empId = SES.perfil.empresa_id;   // empresa_id siempre sale de tu sesión, nunca del formulario
   if (!USER_RE.test(usuario)) return err('Usuario de 3 a 30 caracteres: letras, números, punto, guion o guion bajo (sin espacios ni @).');
   if (pass.length < 8) return err('La contraseña debe tener al menos 8 caracteres.');
   if (!eqRolValido(rol)) return err('Elige un rol válido.');
+  if (ac && !brigada) return err('Escribe la brigada a la que pertenece el usuario.');
   if (!sb || !window.supabase) return err('Sin conexión con Supabase.');
-  if (EQ_BUSY) return; EQ_BUSY = true; $('#eq_ok').disabled = true; err('Creando usuario…');
+  if (EQ_BUSY) return; EQ_BUSY = true; $('#eq_ok').disabled = true; err('Validando cupo de usuarios…');
   try {
+    // 1) Cupo: se valida ANTES de crear la cuenta en Auth para no dejar cuentas huérfanas si la licencia ya está llena
+    const cupo = await eqCupo(); EQ_CUPO = cupo;
+    if (!cupo.ok) throw new Error(`tu licencia alcanzó su límite de usuarios${cupo.limite != null && cupo.usados != null ? ` (${cupo.usados} de ${cupo.limite})` : ''}. Pide al administrador de la plataforma ampliar el cupo.`);
+    err('Creando usuario…');
     // Cliente aparte y sin sesión persistente: así el alta no cierra la sesión del administrador
     const tmp = window.supabase.createClient(SB_URL, SB_KEY, {auth: {persistSession: false, autoRefreshToken: false, detectSessionInUrl: false, storageKey: 'gastro_alta_tmp'}});
     const r = await tmp.auth.signUp({email, password: pass});
@@ -2356,10 +2455,10 @@ async function crearSubusuario() {
     if (r.error) throw new Error(/already|registered|exists/i.test(r.error.message) ? 'Ese usuario ya existe. Elige otro nombre.' : r.error.message);
     const u = r.data && r.data.user;
     if (!u || (u.identities && !u.identities.length)) throw new Error('Ese usuario ya existe. Elige otro nombre.');
-    const q = await sb.from('perfiles').upsert({id: u.id, email, rol, empresa_id: empId}, {onConflict: 'id'}).select(); if (q.error) throw q.error;
+    const q = await sb.from('perfiles').upsert({id: u.id, email, rol, empresa_id: empId, ...(ac ? {brigada} : {})}, {onConflict: 'id'}).select(); if (q.error) throw q.error;
     if (!q.data || !q.data.length) throw new Error('el usuario se creó, pero no se pudo vincular a tu restaurante (revisa las políticas RLS de perfiles)');
     closeModal(); toast('Usuario creado'); await cargarEquipo();
-  } catch (e) { sbLog('crearSubusuario (auth.signUp / perfiles.upsert)', e, {email, rol, empresa_id: empId}); err('No se pudo crear: ' + errMsg(e)); }
+  } catch (e) { sbLog('crearSubusuario (cupo / auth.signUp / perfiles.upsert)', e, {email, rol, empresa_id: empId, brigada}); err('No se pudo crear: ' + errMsg(e)); }
   finally { EQ_BUSY = false; const b = $('#eq_ok'); if (b) b.disabled = false; }
 }
 
@@ -2554,7 +2653,7 @@ const AYUDA = [
 const AYUDA_GRP = {insumos: 'base', inventario: 'base', conteo: 'base', requisiciones: 'base', mermas: 'base', cortesias: 'base', auditoria: 'pro', recepciones: 'pro', estimacion: 'pro', recetas: 'pro', licencias: 'adm', ayuda: 'adm', ajustes: 'adm'};
 const AYUDA_GRP_TXT = {base: ['Inventario', 'Plan Básico: la operación diaria del almacén y la cocina.'], pro: ['Paquete Pro', 'Control administrativo y gerencial. Con el Plan Básico estos módulos aparecen bloqueados con la insignia PRO.'], adm: ['Administración', 'Licencias, manual y ajustes de la cuenta.']};
 function vAyuda() {
-  const L = AYUDA.filter(a => a.k !== 'licencias' || esSuper());   // el Panel Master solo se explica al perfil Master
+  const L = AYUDA.filter(a => (a.k !== 'licencias' || esSuper()) && (a.k !== 'brigadas' || puede('brigadas')) && (a.k !== 'eventos' || puede('eventos')));   // el Panel Master solo se explica al perfil Master
   const idx = L.map((a, n) => `<button class="btn btn-s" onclick="ayudaIr('${a.k}')">${n + 1}. ${esc(modulo(a.k).t)}</button>`).join('');
   const sec = (a, n) => {
     const mo = modulo(a.k), ok = puede(a.k);
@@ -2775,6 +2874,593 @@ async function guardarCambioClave() {
   } catch (e) { sbLog('auth.updateUser (cambiar contraseña)', e, {}); msg('Sin conexión con el servidor. Intenta de nuevo.'); }
   CP_BUSY = false; const b = $('#cp_ok'); if (b) b.disabled = false;
 }
+
+/* ============ 23. EVENTOS (PRO) · LICENCIA ACADÉMICA · AUDITORÍA DE BRIGADAS ============ */
+/* Columnas EXACTAS de Supabase que usa este bloque (si algún campo cambia, edítalo SOLO en EV_DB y EV_LEE):
+   eventos:               id, empresa_id, creado_por, nombre, fecha_evento, notas, num_platillos, total_porciones, costo_total
+   evento_platillos:      id, evento_id, receta_id, nombre, porciones, sazon_pct, costo_unitario, subtotal, editado_evento, orden
+   evento_insumos_detalle id, evento_id, evento_platillo_id (NOT NULL), insumo_id, es_insumo_temporal, modo_calculo ('catalogo'|'directo'|'volumen'),
+                          nombre, categoria, unidad, cantidad_por_porcion, costo_por_porcion, sazon_pct, orden
+   No existen en la base: comensales, estado, costo_congelado, merma_pct. Por eso:
+   · comensales = se recupera del mayor número de porciones de los platillos (no se guarda aparte).
+   · «costos congelados» de un platillo = evento_platillos.editado_evento.
+   · costo_por_porcion de cada línea ya incluye la merma (costo neto por porción).
+   · los insumos temporales del evento (evento_platillo_id es NOT NULL) viven en un renglón técnico de evento_platillos llamado EV_TMP
+     (porciones = 1); sus líneas llevan es_insumo_temporal = true e insumo_id = null. Ese renglón no cuenta como platillo.
+   Cantidad de una línea de platillo = por PORCIÓN en unidad menor (gr / ml / pza). Cantidad de un insumo temporal = total en su unidad. */
+const EV_T = {ev: 'eventos', pl: 'evento_platillos', det: 'evento_insumos_detalle'};
+const EV_TMP = '__INSUMOS_TEMPORALES__', EV_FUERA = 'Insumos del evento (fuera de catálogo)';
+const evFac = u => UNID_FACTOR[u] ?? 1;
+const evMenor = u => ({kg: 'gr', gr: 'gr', [U_LT]: 'ml', ml: 'ml', pza: 'pza', [U_POR]: U_POR}[u] || u);
+const evNum = (x, d = 3) => +(+x || 0).toFixed(d);
+const evClon = o => JSON.parse(JSON.stringify(o));
+async function evCopiar(texto, ok, mal) {
+  let b = false;
+  try { await navigator.clipboard.writeText(texto); b = true; } catch (e) {
+    try { const t = document.createElement('textarea'); t.value = texto; t.style.cssText = 'position:fixed;opacity:0'; document.body.appendChild(t); t.select(); b = document.execCommand('copy'); t.remove(); } catch (x) {}
+  }
+  toast(b ? ok : mal);
+}
+
+// Filas de la base <-> modelo en memoria
+const evAmb = () => { const o = {}; if (SES && SES.perfil && SES.perfil.empresa_id) o.empresa_id = SES.perfil.empresa_id; return o; };   // empresa_id solo si la sesión lo tiene (si no, lo asigna la base)
+const EV_DB = {
+  evFila: (e, c) => ({id: e.id, ...evAmb(), ...((e.userId || (SES && SES.uid)) ? {creado_por: e.userId || SES.uid} : {}), nombre: String(e.nombre).trim(), fecha_evento: e.fecha, notas: e.notas ? e.notas : null,
+    num_platillos: e.platillos.length, total_porciones: evNum(e.platillos.reduce((s, p) => s + (+p.porciones || 0), 0), 2), costo_total: evNum(c.total, 2)}),
+  plFila: (e, p, k) => { const c = EV_C.plat(p); return {id: p.id, evento_id: e.id, ...evAmb(), receta_id: p.productoId || null, nombre: p.nombre, porciones: p.porciones, sazon_pct: p.sazonPct,
+    costo_unitario: evNum(c.porc, 4), subtotal: evNum(c.total, 2), editado_evento: !!p.congelado, orden: k}; },
+  linFila: (e, p, l, k) => { const i = l.insumoId ? insumo(l.insumoId) : null; return {id: l.id, evento_id: e.id, ...evAmb(), evento_platillo_id: p.id, insumo_id: l.insumoId || null, es_insumo_temporal: !l.insumoId,
+    modo_calculo: l.insumoId ? 'catalogo' : 'directo', nombre: l.nombre, categoria: i ? i.categoria : EV_FUERA, unidad: l.unidad, cantidad_por_porcion: evNum(l.c, 4),
+    costo_por_porcion: evNum(EV_C.linPorc(p, l), 6), sazon_pct: +p.sazonPct || 0, orden: k}; },
+  tmpPlFila: (e, tot, k) => ({id: e.tmpId, evento_id: e.id, ...evAmb(), receta_id: null, nombre: EV_TMP, porciones: 1, sazon_pct: 0, costo_unitario: evNum(tot, 4), subtotal: evNum(tot, 2), editado_evento: true, orden: k}),
+  tmpFila: (e, t, k) => ({id: t.id, evento_id: e.id, ...evAmb(), evento_platillo_id: e.tmpId, insumo_id: null, es_insumo_temporal: true, modo_calculo: 'directo', nombre: t.nombre, categoria: EV_FUERA,
+    unidad: t.unidad, cantidad_por_porcion: evNum(t.cantidad, 4), costo_por_porcion: evNum(EV_C.temp(t), 6), sazon_pct: 0, orden: k})
+};
+const evOrd = (a, b) => (+a.orden || 0) - (+b.orden || 0);
+const EV_LEE = {
+  lin: d => {   // costo_por_porcion es neto (con merma): se separa costo y merma con el catálogo si el insumo existe; si no, queda merma 0 y el mismo costo neto
+    const c = +d.cantidad_por_porcion || 0, u = normUnidad(d.unidad), i = d.insumo_id ? insumo(d.insumo_id) : null, merma = i ? Math.min(+i.merma || 0, 99) : 0,
+      neto = c > 0 ? (+d.costo_por_porcion || 0) / (c / evFac(u)) : 0;
+    return {id: d.id, insumoId: d.insumo_id || null, nombre: d.nombre, unidad: u, c, costo: neto * (1 - merma / 100), merma};
+  },
+  tmp: d => { const c = +d.cantidad_por_porcion || 0; return {id: d.id, nombre: d.nombre, unidad: normUnidad(d.unidad), cantidad: c, costo: c > 0 ? (+d.costo_por_porcion || 0) / c : 0}; },
+  pl: (p, dets) => ({id: p.id, productoId: p.receta_id || null, nombre: p.nombre, porciones: +p.porciones || 0, sazonPct: +p.sazon_pct || 0, congelado: !!p.editado_evento,
+    ings: dets.filter(d => d.evento_platillo_id === p.id).sort(evOrd).map(EV_LEE.lin)}),
+  ev: (r, pls, dets) => {
+    const dE = dets.filter(d => d.evento_id === r.id), pE = pls.filter(p => p.evento_id === r.id).sort(evOrd), tp = pE.find(p => p.nombre === EV_TMP),
+      platillos = pE.filter(p => p !== tp).map(p => EV_LEE.pl(p, dE)), com = platillos.reduce((m, p) => Math.max(m, p.porciones), 0);
+    return {id: r.id, nombre: r.nombre || '', fecha: String(r.fecha_evento || '').slice(0, 10), comensales: com, notas: r.notas || '', userId: r.creado_por || null, _base: com, tmpId: tp ? tp.id : null,
+      platillos, temps: tp ? dE.filter(d => d.evento_platillo_id === tp.id).sort(evOrd).map(EV_LEE.tmp) : []};
+  }
+};
+
+// Cálculos de costo. Platillo con costos congelados (o auditado): usa su respaldo; si no, el costo vigente del catálogo.
+const EV_C = {
+  lin(p, l) {
+    const i = (!p.congelado && !p._snap && l.insumoId) ? insumo(l.insumoId) : null;
+    const costo = i ? +i.costo || 0 : +l.costo || 0, merma = i ? +i.merma || 0 : +l.merma || 0;
+    return {costo, merma, neto: costo / (1 - Math.min(merma, 99) / 100)};
+  },
+  linPorc(p, l) { return (+l.c || 0) / evFac(l.unidad) * EV_C.lin(p, l).neto; },
+  plat(p) {
+    const sub = p.ings.reduce((s, l) => s + EV_C.linPorc(p, l), 0), k = 1 + (+p.sazonPct || 0) / 100, n = +p.porciones || 0;
+    return {subPorc: sub, porc: sub * k, total: sub * k * n, sazon: sub * (k - 1) * n};
+  },
+  temp: t => (+t.cantidad || 0) * (+t.costo || 0),
+  ev(e) {
+    let pl = 0, saz = 0; e.platillos.forEach(p => { const c = EV_C.plat(p); pl += c.total; saz += c.sazon; });
+    const tm = e.temps.reduce((s, t) => s + EV_C.temp(t), 0), total = pl + tm;
+    return {platillos: pl, sazon: saz, temps: tm, total, comensal: e.comensales > 0 ? total / e.comensales : 0};
+  }
+};
+
+// Lista de compras del evento: explota platillos (con merma) + insumos temporales; opcionalmente descuenta el inventario
+function evCompras(e, descInv) {
+  const m = {};
+  const toma = (key, nombre, unidad, q, imp, i, cat, temp) => {
+    const x = m[key] || (m[key] = {nombre, unidad, q: 0, imp: 0, stock: null, cat, temp: false});
+    x.q += q; x.imp += imp; if (temp) x.temp = true;
+    if (i && i.unidad === unidad) x.stock = +i.stock || 0;
+    return x;
+  };
+  e.platillos.forEach(p => p.ings.forEach(l => {
+    const v = EV_C.lin(p, l), i = l.insumoId ? insumo(l.insumoId) : null, q = ((+l.c || 0) * (+p.porciones || 0) / evFac(l.unidad)) / (1 - Math.min(v.merma, 99) / 100);
+    toma(l.insumoId || 'x:' + normNombre(l.nombre) + '|' + l.unidad, l.nombre, l.unidad, q, q * v.costo, i, i ? i.categoria : 'Insumos del evento (fuera de catálogo)', false);
+  }));
+  e.temps.forEach(t => toma('x:' + normNombre(t.nombre) + '|' + t.unidad, t.nombre, t.unidad, +t.cantidad || 0, EV_C.temp(t), null, 'Insumos del evento (fuera de catálogo)', true));
+  return Object.values(m).map(x => {
+    const comprar = descInv && x.stock != null ? Math.max(0, x.q - x.stock) : x.q, pu = x.q > 0 ? x.imp / x.q : 0;
+    return {...x, comprar, importe: comprar * pu};
+  }).sort((a, b) => a.cat.localeCompare(b.cat, 'es') || a.nombre.localeCompare(b.nombre, 'es'));
+}
+
+const EV = {
+  lista: [], sel: null, cargado: false, cargando: false, err: '', busy: false, q: '', est: '', uid: null, esNuevo: false, sucio: false, descInv: true,
+  verCostos: () => esAdminRol() || esAcademica(),                                   // en licencia académica los perfiles brigada también ven costos dentro de Eventos
+  soloPropios: () => !!SES && SES.rol === 'cliente' && esAcademica(),               // el profesor ve sus eventos aquí; los de las brigadas se auditan en «Auditoría de Brigadas»
+  reset() { Object.assign(EV, {lista: [], sel: null, cargado: false, cargando: false, err: '', busy: false, q: '', est: '', uid: null, esNuevo: false, sucio: false}); },
+  entrar() {
+    if (EV.uid !== (SES && SES.uid)) { EV.reset(); EV.uid = SES && SES.uid; }
+    if (EV.sel) return EV.pintarEditor();
+    EV.pintarLista(); EV.cargar();
+  },
+  async traerTodo(propios) {
+    const fe = await traer(EV_T.ev, '*', propios ? q => q.eq('creado_por', SES.uid) : null), ids = fe.map(x => x.id), fp = [], fd = [];
+    for (let k = 0; k < ids.length; k += 60) {
+      const ch = ids.slice(k, k + 60);
+      fp.push(...await traer(EV_T.pl, '*', q => q.in('evento_id', ch)));
+      fd.push(...await traer(EV_T.det, '*', q => q.in('evento_id', ch)));
+    }
+    return {fe, fp, fd};
+  },
+  armarTodo: ({fe, fp, fd}) => fe.map(r => EV_LEE.ev(r, fp, fd)),
+  async cargar() {
+    if (!sb || EV.cargando) return;
+    EV.cargando = true; EV.err = '';
+    try { EV.lista = EV.armarTodo(await EV.traerTodo(EV.soloPropios())).sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)) || a.nombre.localeCompare(b.nombre, 'es')); EV.cargado = true; }
+    catch (e) { EV.err = errMsg(e); sbLog('eventos (lectura)', e); }
+    EV.cargando = false; if (mod === 'eventos' && !EV.sel) EV.pintarLista();
+  },
+  subtitulo() {
+    const b = esAcademica() && SES.perfil && SES.perfil.brigada ? ' · Brigada ' + SES.perfil.brigada : '';
+    return (esAcademica() ? 'Licencia académica' + b + ' · ' : '') + 'Banquetes y servicios: platillos, costos, porciones y lista de compras.';
+  },
+
+  /* ---- Listado ---- */
+  filas() {
+    const vc = EV.verCostos(), L = EV.lista.filter(e => normNombre(e.nombre).includes(normNombre(EV.q)));
+    return L.map(e => {
+      const c = EV_C.ev(e);
+      return `<tr><td class="font-medium">${esc(e.nombre)}<div class="text-xs text-slate-500">${e.platillos.length} platillo(s)${e.temps.length ? ' · ' + e.temps.length + ' insumo(s) temporal(es)' : ''}</div></td>
+      <td>${e.fecha ? calFmt(e.fecha) : '—'}</td><td>${e.comensales}</td>
+      ${vc ? `<td>${money(c.total)}</td><td>${money(c.comensal)}</td>` : ''}
+      <td class="whitespace-nowrap"><button class="btn btn-s" onclick="EV.abrir('${e.id}')">Abrir</button> <button class="btn btn-s" onclick="EV.duplicar('${e.id}')">Duplicar</button> <button class="btn btn-s" style="color:#fca5a5" onclick="EV.eliminar('${e.id}')">Borrar</button></td></tr>`;
+    }).join('') || `<tr><td colspan="${EV.verCostos() ? 6 : 4}" class="text-slate-500 text-center py-8">${EV.cargando ? 'Cargando eventos…' : 'Sin eventos todavía. Crea el primero con «Nuevo evento».'}</td></tr>`;
+  },
+  filtrar() { const b = $('#evBody'); if (b) b.innerHTML = EV.filas(); },
+  pintarLista() {
+    const vc = EV.verCostos();
+    $('#view').innerHTML = head('Eventos', EV.subtitulo(), `<button class="btn btn-s" onclick="EV.cargado=false;EV.cargar()">Actualizar</button><button class="btn btn-p" onclick="EV.nuevo()">Nuevo evento</button>`) +
+      (EV.err ? `<p class="text-red-300 text-sm mb-3" role="alert">No se pudieron leer los eventos: ${esc(EV.err)}. Revisa tu conexión y las políticas RLS en Supabase.</p>` : '') +
+      `<div class="flex flex-wrap gap-2 mb-4"><input class="inp max-w-xs" placeholder="Buscar evento" value="${esc(EV.q)}" oninput="EV.q=this.value;EV.filtrar()" autocomplete="off"></div>` +
+      table(['Evento', 'Fecha', 'Comensales', ...(vc ? ['Costo total', 'Costo por comensal'] : []), ''], EV.filas(), true, 'evBody');
+  },
+  nuevo() { EV.sel = {id: uuidv4(), nombre: '', fecha: today(), comensales: 20, notas: '', _base: 20, userId: null, tmpId: null, platillos: [], temps: []}; EV.esNuevo = true; EV.sucio = true; EV.pintarEditor(); },
+  abrir(id) { const e = EV.lista.find(x => x.id === id); if (!e) return; EV.sel = evClon(e); EV.sel._base = EV.sel.comensales; EV.esNuevo = false; EV.sucio = false; EV.pintarEditor(); },
+  duplicar(id) {
+    const e = EV.lista.find(x => x.id === id); if (!e) return;
+    const c = evClon(e); c.id = uuidv4(); c.nombre += ' (copia)'; c.userId = null; c.tmpId = null; c._base = c.comensales;
+    c.platillos.forEach(p => { p.id = uuidv4(); p.ings.forEach(l => { l.id = uuidv4(); }); }); c.temps.forEach(t => { t.id = uuidv4(); });
+    EV.sel = c; EV.esNuevo = true; EV.sucio = true; EV.pintarEditor(); toast('Copia creada: revísala y pulsa «Guardar evento»');
+  },
+  async eliminar(id) {
+    const e = EV.lista.find(x => x.id === id); if (!e || EV.busy) return;
+    if (!confirm(`¿Borrar el evento «${e.nombre}» con sus platillos e insumos?\n\nEsta acción no se puede deshacer.`)) return;
+    EV.busy = true;
+    try {
+      for (const t of [EV_T.det, EV_T.pl]) { const r = await sb.from(t).delete().eq('evento_id', id); if (r.error) throw r.error; }
+      const r = await sb.from(EV_T.ev).delete().eq('id', id).select('id'); if (r.error) throw r.error;
+      if (!r.data || !r.data.length) throw new Error('no se borró ningún registro (revisa las políticas RLS de eventos)');
+      EV.lista = EV.lista.filter(x => x.id !== id); toast('Evento borrado');
+    } catch (x) { sbLog('eventos.delete', x, {id}); alert('No se pudo borrar: ' + errMsg(x)); }
+    finally { EV.busy = false; if (mod === 'eventos' && !EV.sel) EV.pintarLista(); }
+  },
+  cerrar() {
+    if (EV.sucio && !confirm('Hay cambios sin guardar en este evento. ¿Salir y descartarlos?')) return;
+    EV.sel = null; EV.sucio = false; EV.esNuevo = false; EV.pintarLista(); EV.cargar();
+  },
+
+  /* ---- Editor ---- */
+  pintarEditor() {
+    const e = EV.sel; if (!e) return EV.pintarLista();
+    const bt = `<button class="btn btn-s" onclick="EV.cerrar()">← Eventos</button><button class="btn btn-p" onclick="EV.guardar()">Guardar evento</button>`;
+    $('#view').innerHTML = head(esc(e.nombre || 'Nuevo evento'), EV.subtitulo(), bt) +
+      `<div class="bg-[#0b0f19] border border-slate-800 rounded-2xl p-4 mb-3"><div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        ${field('Nombre del evento *', `<input class="inp" value="${esc(e.nombre)}" maxlength="120" oninput="EV.set('nombre',this.value)" placeholder="Ej. Banquete de graduación">`)}
+        ${field('Fecha *', `<input class="inp" type="date" value="${esc(e.fecha)}" onchange="EV.set('fecha',this.value)">`)}
+        ${field('Comensales *', `<input class="inp" type="number" min="1" step="1" value="${e.comensales}" oninput="EV.set('comensales',this.value)">`)}
+      </div><div class="mt-3">${field('Notas', `<textarea class="inp" rows="2" maxlength="600" oninput="EV.set('notas',this.value)" placeholder="Menú, alergias, horario, observaciones…">${esc(e.notas)}</textarea>`)}</div></div>` +
+      `<div class="flex flex-wrap gap-2 mb-3">
+        <button class="btn btn-s" onclick="EV.modalReceta()">+ Platillo desde receta</button>
+        <button class="btn btn-s" onclick="EV.modalVuelo()">+ Platillo al vuelo</button>
+        <button class="btn btn-s" onclick="EV.modalTemp()">+ Insumo temporal</button>
+        <button class="btn btn-s" onclick="EV.recalcular()" title="Ajusta las porciones a los comensales y restablece la sazón de las recetas">↻ Recalcular porciones / sazón</button>
+        <button class="btn btn-s" onclick="EV.congelar(-1)" title="Fija el costo de catálogo de todos los platillos">❄ Congelar costos</button>
+        <button class="btn btn-p" onclick="EV.compras()">🛒 Lista de compras</button></div>` +
+      `<div id="ev_aviso"></div><div id="ev_plats">${EV.htmlPlatillos()}</div><div id="ev_temps">${EV.htmlTemps()}</div><div id="ev_tot"></div>`;
+    EV.refrescar();
+  },
+  htmlPlatillos() {
+    const e = EV.sel, vc = EV.verCostos();
+    if (!e.platillos.length) return `<div class="bg-[#0b0f19] border border-slate-800 rounded-2xl p-6 mb-3 text-center text-slate-400 text-sm">Aún no hay platillos. Agrégalos desde tus recetas o crea uno «al vuelo».</div>`;
+    return e.platillos.map((p, pi) => {
+      const rows = p.ings.map((l, li) => `<tr><td class="font-medium">${esc(l.nombre)}${l.insumoId ? '' : ' <span class="pill y">Libre</span>'}</td>
+        <td><div class="flex items-center gap-1"><input class="inp w-28" type="number" min="0" step="any" value="${evNum(l.c)}" oninput="EV.setLin(${pi},${li},this.value)" aria-label="Cantidad por porción de ${esc(l.nombre)}"> <span class="text-xs text-slate-400">${evMenor(l.unidad)} / porción</span></div></td>
+        ${vc ? `<td id="evlc_${pi}_${li}"></td>` : ''}<td><button class="btn btn-s" onclick="EV.quitarLin(${pi},${li})" aria-label="Quitar ${esc(l.nombre)}">✕</button></td></tr>`).join('');
+      return `<div class="bg-[#0b0f19] border border-slate-800 rounded-2xl p-4 mb-3">
+        <div class="flex flex-wrap items-start justify-between gap-3 mb-3"><div><h2 class="brand font-bold">${esc(p.nombre)}</h2>
+          <div class="flex flex-wrap gap-1 mt-1"><span class="pill ${p.productoId ? 's' : 'y'}">${p.productoId ? 'De receta' : 'Al vuelo'}</span>${p.congelado ? '<span class="pill o">❄ Costos congelados</span>' : ''}</div></div>
+          <div class="flex flex-wrap items-end gap-2">
+            <div class="w-24">${field('Porciones', `<input class="inp" type="number" min="0" step="1" value="${p.porciones}" oninput="EV.setPlat(${pi},'porciones',this.value)">`)}</div>
+            <div class="w-24">${field('Sazón %', `<input class="inp" type="number" min="0" step="0.5" value="${p.sazonPct}" oninput="EV.setPlat(${pi},'sazonPct',this.value)">`)}</div>
+            <button class="btn btn-s" onclick="EV.modalLinea(${pi})">+ Insumo</button>
+            <button class="btn btn-s" onclick="EV.congelar(${pi})">${p.congelado ? 'Descongelar' : '❄ Congelar'}</button>
+            <button class="btn btn-s" style="color:#fca5a5" onclick="EV.quitarPlat(${pi})">Quitar</button></div></div>` +
+        table(['Ingrediente', 'Cantidad', ...(vc ? ['Costo por porción'] : []), ''], rows || `<tr><td colspan="${vc ? 4 : 3}" class="text-slate-500 text-center py-4">Sin ingredientes. Usa «+ Insumo».</td></tr>`) +
+        (vc ? `<p id="evpc_${pi}" class="text-sm text-slate-300 mt-2"></p>` : '') + `</div>`;
+    }).join('');
+  },
+  htmlTemps() {
+    const e = EV.sel, vc = EV.verCostos(); if (!e.temps.length) return '';
+    const rows = e.temps.map((t, ti) => `<tr><td class="font-medium">${esc(t.nombre)}</td><td>${esc(t.unidad)}</td>
+      <td><input class="inp w-28" type="number" min="0" step="any" value="${evNum(t.cantidad)}" oninput="EV.setTemp(${ti},'cantidad',this.value)" aria-label="Cantidad de ${esc(t.nombre)}"></td>
+      ${vc ? `<td><input class="inp w-28" type="number" min="0" step="any" value="${evNum(t.costo, 4)}" oninput="EV.setTemp(${ti},'costo',this.value)" aria-label="Costo unitario de ${esc(t.nombre)}"></td><td id="evtc_${ti}"></td>` : ''}
+      <td><button class="btn btn-s" onclick="EV.quitarTemp(${ti})" aria-label="Quitar ${esc(t.nombre)}">✕</button></td></tr>`).join('');
+    return `<div class="bg-[#0b0f19] border border-slate-800 rounded-2xl p-4 mb-3"><h2 class="brand font-bold">Insumos temporales del evento</h2>
+      <p class="text-xs text-slate-400 mb-2">Compras especiales solo para este evento: no entran al catálogo ni al inventario.</p>` +
+      table(['Insumo', 'Unidad', 'Cantidad', ...(vc ? ['Costo por unidad', 'Importe'] : []), ''], rows) + `</div>`;
+  },
+  refrescar() {
+    const e = EV.sel; if (!e) return; const vc = EV.verCostos(), t = EV_C.ev(e), set = (id, h) => { const x = document.getElementById(id); if (x) x.innerHTML = h; };
+    e.platillos.forEach((p, pi) => {
+      const c = EV_C.plat(p);
+      set('evpc_' + pi, `Costo por porción <b>${money(c.porc)}</b> (incluye sazón ${money(c.subPorc * (+p.sazonPct || 0) / 100)}) · Total del platillo <b class="text-orange-300">${money(c.total)}</b>`);
+      p.ings.forEach((l, li) => set(`evlc_${pi}_${li}`, money(EV_C.linPorc(p, l))));
+    });
+    e.temps.forEach((x, ti) => set('evtc_' + ti, money(EV_C.temp(x))));
+    const card = (a, b, hi) => `<div class="bg-[#0b0f19] border border-slate-800 rounded-2xl p-3"><div class="text-slate-400 text-xs">${a}</div><div class="brand text-xl font-bold ${hi ? 'text-orange-300' : ''}">${b}</div></div>`;
+    set('ev_tot', vc ? `<div class="grid grid-cols-2 lg:grid-cols-5 gap-3 mb-4">${card('Platillos', money(t.platillos))}${card('Sazón incluida', money(t.sazon))}${card('Insumos temporales', money(t.temps))}${card('Total del evento', money(t.total), true)}${card('Por comensal', money(t.comensal), true)}</div>` : '');
+    set('ev_aviso', e.platillos.length && e._base > 0 && e.comensales !== e._base ? `<p class="text-sm text-yellow-300 mb-3" role="status">Cambiaste los comensales de ${e._base} a ${e.comensales}. Pulsa «Recalcular porciones / sazón» para ajustar las porciones de los platillos.</p>` : '');
+  },
+  set(k, v) {
+    const e = EV.sel; if (!e) return; EV.sucio = true;
+    if (k === 'comensales') { e.comensales = Math.max(0, parseInt(v, 10) || 0); EV.refrescar(); }
+    else e[k] = v;
+  },
+  setPlat(pi, k, v) { const p = EV.sel.platillos[pi]; if (!p) return; EV.sucio = true; p[k] = k === 'porciones' ? Math.max(0, Math.round(parseFloat(v) || 0)) : Math.max(0, parseFloat(v) || 0); EV.refrescar(); },
+  setLin(pi, li, v) { const l = EV.sel.platillos[pi] && EV.sel.platillos[pi].ings[li]; if (!l) return; EV.sucio = true; l.c = Math.max(0, parseFloat(v) || 0); EV.refrescar(); },
+  setTemp(ti, k, v) { const t = EV.sel.temps[ti]; if (!t) return; EV.sucio = true; t[k] = Math.max(0, parseFloat(v) || 0); EV.refrescar(); },
+  quitarPlat(pi) { const p = EV.sel.platillos[pi]; if (!p || !confirm(`¿Quitar el platillo «${p.nombre}» del evento?`)) return; EV.sel.platillos.splice(pi, 1); EV.sucio = true; EV.pintarEditor(); },
+  quitarLin(pi, li) { EV.sel.platillos[pi].ings.splice(li, 1); EV.sucio = true; EV.pintarEditor(); },
+  quitarTemp(ti) { EV.sel.temps.splice(ti, 1); EV.sucio = true; EV.pintarEditor(); },
+
+  /* ---- Altas: platillo desde receta / al vuelo / insumo en platillo / insumo temporal ---- */
+  modalReceta() {
+    const e = EV.sel, rs = [...S.recetas].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+    if (!rs.length) return toast('Aún no tienes recetas en el catálogo. Usa «Platillo al vuelo».');
+    openModal(`<h2 class="brand text-xl font-bold mb-4">Agregar platillo desde receta</h2><div class="grid gap-3">
+      ${field('Receta', `<select class="inp" id="evm_r">${rs.map(r => `<option value="${r.id}">${esc(r.nombre)} · ${esc(r.categoria)}</option>`).join('')}</select>`)}
+      ${field('Porciones a servir', `<input class="inp" id="evm_p" type="number" min="1" step="1" value="${e.comensales || 1}">`)}</div>
+      <p class="text-xs text-slate-400 mt-2">Se copian los ingredientes y la sazón de la receta. Mientras no congeles costos, el costo sigue al catálogo.</p>
+      <p id="evm_err" class="text-red-400 text-sm mt-2" role="alert"></p>
+      <div class="flex justify-end gap-2 mt-4"><button class="btn btn-s" onclick="closeModal()">Cancelar</button><button class="btn btn-p" onclick="EV.addReceta()">Agregar</button></div>`);
+  },
+  addReceta() {
+    const r = S.recetas.find(x => x.id === $('#evm_r').value), n = parseInt($('#evm_p').value, 10);
+    if (!r) return; if (!(n > 0)) return ($('#evm_err').textContent = 'Captura las porciones a servir.');
+    const rinde = r.porciones || 1;
+    EV.sel.platillos.push({id: uuidv4(), productoId: r.id, nombre: r.nombre, porciones: n, sazonPct: +r.sazonPct || 0, congelado: false,
+      ings: r.ings.filter(l => insumo(l.id)).map(l => { const i = insumo(l.id); return {id: uuidv4(), insumoId: i.id, nombre: i.nombre, unidad: i.unidad, c: l.c / rinde, costo: +i.costo || 0, merma: +i.merma || 0}; })});
+    EV.sucio = true; closeModal(); EV.pintarEditor();
+  },
+  modalVuelo() {
+    openModal(`<h2 class="brand text-xl font-bold mb-4">Platillo al vuelo</h2><div class="grid sm:grid-cols-3 gap-3">
+      <div class="sm:col-span-3">${field('Nombre del platillo *', `<input class="inp" id="evm_n" maxlength="120" autocomplete="off" placeholder="Ej. Crema de elote">`)}</div>
+      ${field('Porciones *', `<input class="inp" id="evm_p" type="number" min="1" step="1" value="${EV.sel.comensales || 1}">`)}
+      ${field('Sazón %', `<input class="inp" id="evm_s" type="number" min="0" step="0.5" value="3">`)}</div>
+      <p class="text-xs text-slate-400 mt-2">Después agrega sus insumos con «+ Insumo» (del catálogo o libres).</p>
+      <p id="evm_err" class="text-red-400 text-sm mt-2" role="alert"></p>
+      <div class="flex justify-end gap-2 mt-4"><button class="btn btn-s" onclick="closeModal()">Cancelar</button><button class="btn btn-p" onclick="EV.addVuelo()">Crear platillo</button></div>`);
+    setTimeout(() => $('#evm_n') && $('#evm_n').focus(), 50);
+  },
+  addVuelo() {
+    const nom = $('#evm_n').value.trim(), n = parseInt($('#evm_p').value, 10), s = Math.max(0, parseFloat($('#evm_s').value) || 0);
+    if (!nom) return ($('#evm_err').textContent = 'Escribe el nombre del platillo.'); if (!(n > 0)) return ($('#evm_err').textContent = 'Captura las porciones.');
+    EV.sel.platillos.push({id: uuidv4(), productoId: null, nombre: nom, porciones: n, sazonPct: s, congelado: false, ings: []});
+    EV.sucio = true; closeModal(); EV.pintarEditor(); EV.modalLinea(EV.sel.platillos.length - 1);
+  },
+  modalLinea(pi) {
+    const p = EV.sel.platillos[pi]; if (!p) return;
+    const ins = [...S.insumos].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+    openModal(`<h2 class="brand text-xl font-bold mb-1">Agregar insumo</h2><p class="text-slate-400 text-sm mb-3">Platillo: ${esc(p.nombre)}</p><div class="grid sm:grid-cols-2 gap-3">
+      <div class="sm:col-span-2">${field('Insumo', `<select class="inp" id="evm_i" onchange="EV.linCambio()"><option value="">— Insumo libre (fuera del catálogo) —</option>${ins.map(i => `<option value="${i.id}">${esc(i.nombre)} (${esc(i.unidad)})</option>`).join('')}</select>`)}</div>
+      ${field('<span id="evm_ul">Cantidad por porción</span>', `<input class="inp" id="evm_c" type="number" min="0" step="any" placeholder="0">`)}
+      <div id="evm_libre" class="sm:col-span-2 grid sm:grid-cols-2 gap-3">
+        <div class="sm:col-span-2">${field('Nombre del insumo libre *', `<input class="inp" id="evm_n" maxlength="120" autocomplete="off">`)}</div>
+        ${field('Unidad de compra', `<select class="inp" id="evm_u" onchange="EV.linCambio()">${opts(UNITS, 'kg')}</select>`)}
+        ${field('Costo por unidad de compra ($)', `<input class="inp" id="evm_k" type="number" min="0" step="any" value="0">`)}
+        ${field('Merma %', `<input class="inp" id="evm_m" type="number" min="0" max="99" step="any" value="0">`)}</div></div>
+      <p id="evm_err" class="text-red-400 text-sm mt-2" role="alert"></p>
+      <div class="flex justify-end gap-2 mt-4"><button class="btn btn-s" onclick="closeModal()">Cancelar</button><button class="btn btn-p" onclick="EV.addLinea(${pi})">Agregar</button></div>`);
+    EV.linCambio();
+  },
+  linCambio() {
+    const id = $('#evm_i').value, i = id ? insumo(id) : null, u = i ? i.unidad : $('#evm_u').value;
+    $('#evm_libre').style.display = i ? 'none' : ''; $('#evm_ul').textContent = `Cantidad por porción (${evMenor(u)})`;
+  },
+  addLinea(pi) {
+    const p = EV.sel.platillos[pi], id = $('#evm_i').value, i = id ? insumo(id) : null, c = parseFloat($('#evm_c').value), err = m => ($('#evm_err').textContent = m);
+    if (!p) return; if (!(c > 0)) return err('Captura la cantidad por porción.');
+    if (i) p.ings.push({id: uuidv4(), insumoId: i.id, nombre: i.nombre, unidad: i.unidad, c, costo: +i.costo || 0, merma: +i.merma || 0});
+    else {
+      const nom = $('#evm_n').value.trim(), costo = Math.max(0, parseFloat($('#evm_k').value) || 0), merma = Math.min(99, Math.max(0, parseFloat($('#evm_m').value) || 0));
+      if (!nom) return err('Escribe el nombre del insumo.');
+      p.ings.push({id: uuidv4(), insumoId: null, nombre: nom, unidad: $('#evm_u').value, c, costo, merma});
+    }
+    EV.sucio = true; closeModal(); EV.pintarEditor();
+  },
+  modalTemp() {
+    openModal(`<h2 class="brand text-xl font-bold mb-1">Insumo temporal</h2><p class="text-slate-400 text-sm mb-3">Compra especial solo para este evento (no entra al catálogo ni al inventario).</p><div class="grid sm:grid-cols-2 gap-3">
+      <div class="sm:col-span-2">${field('Nombre *', `<input class="inp" id="evm_n" maxlength="120" autocomplete="off" placeholder="Ej. Centro de mesa, hielo, flores">`)}</div>
+      ${field('Unidad', `<select class="inp" id="evm_u">${opts(UNITS, 'pza')}</select>`)}
+      ${field('Cantidad *', `<input class="inp" id="evm_c" type="number" min="0" step="any">`)}
+      ${field('Costo por unidad ($)', `<input class="inp" id="evm_k" type="number" min="0" step="any" value="0">`)}</div>
+      <p id="evm_err" class="text-red-400 text-sm mt-2" role="alert"></p>
+      <div class="flex justify-end gap-2 mt-4"><button class="btn btn-s" onclick="closeModal()">Cancelar</button><button class="btn btn-p" onclick="EV.addTemp()">Agregar</button></div>`);
+    setTimeout(() => $('#evm_n') && $('#evm_n').focus(), 50);
+  },
+  addTemp() {
+    const nom = $('#evm_n').value.trim(), c = parseFloat($('#evm_c').value), k = Math.max(0, parseFloat($('#evm_k').value) || 0);
+    if (!nom) return ($('#evm_err').textContent = 'Escribe el nombre.'); if (!(c > 0)) return ($('#evm_err').textContent = 'Captura la cantidad.');
+    EV.sel.temps.push({id: uuidv4(), nombre: nom, unidad: $('#evm_u').value, cantidad: c, costo: k});
+    EV.sucio = true; closeModal(); EV.pintarEditor();
+  },
+
+  /* ---- Congelar costos, recalcular ---- */
+  congelar(pi) {   // pi = -1: todos los platillos (congela los que estén vivos); pi >= 0: alterna ese platillo
+    const e = EV.sel; if (!e) return;
+    if (pi >= 0) {
+      const p = e.platillos[pi]; if (!p) return;
+      if (p.congelado) { if (!confirm(`¿Descongelar «${p.nombre}»? Volverá a usar los costos vigentes del catálogo.`)) return; p.congelado = false; }
+      else { EV.fijar(p); p.congelado = true; }
+    } else {
+      if (!e.platillos.length) return toast('Aún no hay platillos que congelar.');
+      e.platillos.forEach(p => { if (!p.congelado) { EV.fijar(p); p.congelado = true; } });
+      toast('Costos de catálogo congelados en todos los platillos');
+    }
+    EV.sucio = true; EV.pintarEditor();
+  },
+  fijar(p) { p.ings.forEach(l => { const i = l.insumoId ? insumo(l.insumoId) : null; if (i) { l.costo = +i.costo || 0; l.merma = +i.merma || 0; } }); },
+  recalcular() {
+    const e = EV.sel; if (!e) return;
+    if (!(e.comensales > 0)) return toast('Captura primero el número de comensales.');
+    if (!e.platillos.length) return toast('Aún no hay platillos que recalcular.');
+    const k = e._base > 0 ? e.comensales / e._base : 1; let saz = 0;
+    e.platillos.forEach(p => {
+      if (k !== 1) p.porciones = Math.max(1, Math.round((+p.porciones || 0) * k));
+      const r = p.productoId && !p.congelado ? S.recetas.find(x => x.id === p.productoId) : null;
+      if (r && (+r.sazonPct || 0) !== p.sazonPct) { p.sazonPct = +r.sazonPct || 0; saz++; }
+    });
+    e._base = e.comensales; EV.sucio = true; EV.pintarEditor();
+    toast(`Porciones ajustadas a ${e.comensales} comensales${saz ? ` · sazón actualizada en ${saz} platillo(s)` : ''}`);
+  },
+
+  /* ---- Guardar ---- */
+  async guardar() {
+    const e = EV.sel; if (!e || EV.busy) return;
+    if (!String(e.nombre).trim()) return toast('Escribe el nombre del evento.');
+    if (!e.fecha) return toast('Elige la fecha del evento.');
+    if (!(e.comensales > 0)) return toast('Captura el número de comensales.');
+    if (!sb) return toast('Sin conexión con Supabase.');
+    EV.busy = true;
+    try {
+      e.platillos.forEach(p => { if (!p.congelado) EV.fijar(p); });   // respaldo del costo vigente (el modo vivo sigue al catálogo al reabrir)
+      let r = await sb.from(EV_T.ev).upsert(EV_DB.evFila(e, EV_C.ev(e))).select(); if (r.error) throw r.error;
+      if (!r.data || !r.data.length) throw new Error('no se guardó el evento (revisa las políticas RLS de eventos)');
+      if (r.data[0].creado_por) e.userId = r.data[0].creado_por;
+      const pls = e.platillos.map((p, k) => EV_DB.plFila(e, p, k)), dets = [];
+      e.platillos.forEach(p => p.ings.forEach((l, k) => dets.push(EV_DB.linFila(e, p, l, k))));
+      if (e.temps.length) {   // evento_platillo_id es NOT NULL: los insumos temporales cuelgan de un renglón técnico (EV_TMP) con porciones = 1
+        if (!e.tmpId) e.tmpId = uuidv4();
+        pls.push(EV_DB.tmpPlFila(e, e.temps.reduce((t, x) => t + EV_C.temp(x), 0), e.platillos.length));
+        e.temps.forEach((t, k) => dets.push(EV_DB.tmpFila(e, t, k)));
+      }
+      if (pls.length) { r = await sb.from(EV_T.pl).upsert(pls); if (r.error) throw r.error; }
+      if (dets.length) { r = await sb.from(EV_T.det).upsert(dets); if (r.error) throw r.error; }
+      await EV.limpiar(EV_T.det, e.id, dets.map(x => x.id)); await EV.limpiar(EV_T.pl, e.id, pls.map(x => x.id));   // borra lo que se quitó en pantalla
+      const copia = evClon(e), k = EV.lista.findIndex(x => x.id === e.id); if (k >= 0) EV.lista[k] = copia; else EV.lista.unshift(copia);
+      EV.esNuevo = false; EV.sucio = false; e._base = e.comensales; toast('Evento guardado'); EV.pintarEditor();
+    } catch (x) { sbLog('eventos.guardar', x, {id: e.id}); alert('No se pudo guardar el evento: ' + errMsg(x)); }
+    finally { EV.busy = false; }
+  },
+  async limpiar(tabla, eid, ids) {
+    let q = sb.from(tabla).delete().eq('evento_id', eid); if (ids.length) q = q.not('id', 'in', '(' + ids.join(',') + ')');
+    const r = await q; if (r.error) throw r.error;
+  },
+
+  /* ---- Lista de compras ---- */
+  compras() {
+    const e = EV.sel; if (!e) return; const vc = EV.verCostos(), L = evCompras(e, EV.descInv);
+    if (!L.length) return toast('Agrega platillos o insumos temporales para generar la lista de compras.');
+    let g = '', rows = '';
+    L.forEach(x => {
+      if (x.cat !== g) { g = x.cat; rows += `<tr><td colspan="${vc ? 5 : 4}" class="text-xs uppercase tracking-wide text-slate-500 bg-slate-900/40">${esc(g)}</td></tr>`; }
+      rows += `<tr><td class="font-medium">${esc(x.nombre)}${x.temp ? ' <span class="pill y">Temporal</span>' : ''}</td><td>${evNum(x.q)} ${esc(x.unidad)}</td><td>${x.stock != null ? evNum(x.stock) + ' ' + esc(x.unidad) : '—'}</td>
+        <td><b class="${x.comprar > 0 ? 'text-orange-300' : 'text-emerald-300'}">${x.comprar > 0 ? evNum(x.comprar) + ' ' + esc(x.unidad) : 'Cubierto'}</b></td>${vc ? `<td>${money(x.importe)}</td>` : ''}</tr>`;
+    });
+    const tot = L.reduce((s, x) => s + x.importe, 0);
+    openModal(`<h2 class="brand text-xl font-bold">Lista de compras</h2><p class="text-slate-400 text-sm mb-3">${esc(e.nombre || 'Evento')} · ${e.comensales} comensales${e.fecha ? ' · ' + calFmt(e.fecha) : ''}</p>
+      <label class="flex items-center gap-2 text-sm text-slate-300 mb-3 cursor-pointer"><input type="checkbox" class="h-4 w-4 accent-orange-500" ${EV.descInv ? 'checked' : ''} onchange="EV.descInv=this.checked;EV.compras()"> Descontar lo que ya hay en inventario</label>` +
+      table(['Insumo', 'Necesario (con merma)', 'En inventario', 'A comprar', ...(vc ? ['Costo estimado'] : [])], rows) +
+      (vc ? `<p class="text-right mt-3 text-sm text-slate-300">Total estimado de compra: <b class="brand text-lg text-orange-300">${money(tot)}</b></p>` : '') +
+      `<p class="text-xs text-slate-400 mt-2">Solo es una estimación: no modifica el inventario. El faltante usa el stock actual del catálogo.</p>
+      <div class="flex flex-wrap justify-end gap-2 mt-4"><button class="btn btn-s" onclick="closeModal()">Cerrar</button><button class="btn btn-s" onclick="EV.copiarCompras()">Copiar lista</button><button class="btn btn-p" onclick="EV.imprimirCompras()">Imprimir</button></div>`);
+  },
+  copiarCompras() {
+    const e = EV.sel; if (!e) return; const L = evCompras(e, EV.descInv).filter(x => x.comprar > 0);
+    evCopiar(`Lista de compras · ${e.nombre} · ${e.comensales} comensales\n` + (L.map(x => `- ${x.nombre}: ${evNum(x.comprar)} ${x.unidad}`).join('\n') || '(todo está cubierto con el inventario)'), 'Lista copiada al portapapeles', 'No se pudo copiar la lista');
+  },
+  htmlCompras(e) {
+    const vc = EV.verCostos(), L = evCompras(e, EV.descInv), tot = L.reduce((s, x) => s + x.importe, 0);
+    return tp(['Insumo', 'Necesario', 'En inventario', 'A comprar', ...(vc ? ['Costo estimado'] : [])],
+      L.map(x => `<tr><td>${esc(x.nombre)}${x.temp ? ' (temporal)' : ''}</td><td>${evNum(x.q)} ${esc(x.unidad)}</td><td>${x.stock != null ? evNum(x.stock) + ' ' + esc(x.unidad) : '—'}</td><td>${x.comprar > 0 ? evNum(x.comprar) + ' ' + esc(x.unidad) : 'Cubierto'}</td>${vc ? `<td>${money(x.importe)}</td>` : ''}</tr>`).join('')) +
+      (vc ? `<p><b>Total estimado de compra:</b> ${money(tot)}</p>` : '');
+  },
+  imprimirCompras() {
+    const e = EV.sel; if (!e) return;
+    imprimir(docHtml('Lista de compras', '', null, kv([['Evento', esc(e.nombre)], ['Fecha', esc(e.fecha || '—')], ['Comensales', e.comensales]]) + EV.htmlCompras(e), ['Elaboró', 'Autoriza']));
+  },
+
+  /* ---- Detalle de solo lectura (Auditoría de Brigadas) y reportes ---- */
+  detalleHtml(e) {
+    const vc = EV.verCostos(), t = EV_C.ev(e);
+    const pls = e.platillos.map(p => {
+      const c = EV_C.plat(p);
+      return `<h3 class="brand font-bold mt-4 mb-1">${esc(p.nombre)} <span class="text-xs font-normal text-slate-400">· ${p.porciones} porciones · sazón ${p.sazonPct}%${p.congelado ? ' · costos congelados' : ''}</span></h3>` +
+        table(['Ingrediente', 'Cantidad por porción', ...(vc ? ['Costo por porción'] : [])], p.ings.map(l => `<tr><td>${esc(l.nombre)}</td><td>${evNum(l.c)} ${evMenor(l.unidad)}</td>${vc ? `<td>${money(EV_C.linPorc(p, l))}</td>` : ''}</tr>`).join('') || `<tr><td colspan="3" class="text-slate-500">Sin ingredientes</td></tr>`) +
+        (vc ? `<p class="text-sm text-slate-300 mt-1">Costo por porción <b>${money(c.porc)}</b> · Total <b class="text-orange-300">${money(c.total)}</b></p>` : '');
+    }).join('');
+    const tm = e.temps.length ? `<h3 class="brand font-bold mt-4 mb-1">Insumos temporales</h3>` + table(['Insumo', 'Cantidad', ...(vc ? ['Importe'] : [])], e.temps.map(x => `<tr><td>${esc(x.nombre)}</td><td>${evNum(x.cantidad)} ${esc(x.unidad)}</td>${vc ? `<td>${money(EV_C.temp(x))}</td>` : ''}</tr>`).join('')) : '';
+    return `<p class="text-sm text-slate-400">${e.fecha ? calFmt(e.fecha) : '—'} · ${e.comensales} comensales</p>${e.notas ? `<p class="text-sm text-slate-300 mt-2 whitespace-pre-wrap">${esc(e.notas)}</p>` : ''}${pls}${tm}` +
+      (vc ? `<p class="text-right mt-4">Total del evento <b class="brand text-xl text-orange-300">${money(t.total)}</b> · por comensal <b>${money(t.comensal)}</b></p>` : '');
+  },
+  htmlReporte() {
+    const vc = EV.verCostos(), e = EV.sel;
+    if (!e) {
+      return docHtml('Reporte de Eventos', '', null, tp(['Evento', 'Fecha', 'Comensales', ...(vc ? ['Costo total', 'Por comensal'] : [])],
+        EV.lista.map(x => { const c = EV_C.ev(x); return `<tr><td>${esc(x.nombre)}</td><td>${esc(x.fecha)}</td><td>${x.comensales}</td>${vc ? `<td>${money(c.total)}</td><td>${money(c.comensal)}</td>` : ''}</tr>`; }).join('')), ['Elaboró', 'Autoriza']);
+    }
+    const t = EV_C.ev(e);
+    const pl = tp(['Platillo', 'Porciones', 'Sazón %', ...(vc ? ['Costo por porción', 'Total'] : [])], e.platillos.map(p => { const c = EV_C.plat(p); return `<tr><td>${esc(p.nombre)}</td><td>${p.porciones}</td><td>${p.sazonPct}</td>${vc ? `<td>${money(c.porc)}</td><td>${money(c.total)}</td>` : ''}</tr>`; }).join(''));
+    return docHtml('Evento', '', null, kv([['Evento', esc(e.nombre)], ['Fecha', esc(e.fecha || '—')], ['Comensales', e.comensales]].concat(vc ? [['Total del evento', money(t.total)], ['Por comensal', money(t.comensal)]] : [])) + pl + EV.htmlCompras(e), ['Elaboró', 'Autoriza']);
+  }
+};
+REPORTES.eventos = () => EV.htmlReporte();
+ETQ_IMP.eventos = 'Imprimir Evento';
+
+/* ============ 24. AUDITORÍA DE BRIGADAS (solo administrador / profesor en licencia académica) ============ */
+// El administrador lee a todas las brigadas de su plantel (política RLS de auditoría); las brigadas entre sí siguen aisladas.
+const BR = {
+  datos: null, cargando: false, err: '', brig: '', tab: 'resumen', q: '', uid: null,
+  reset() { Object.assign(BR, {datos: null, cargando: false, err: '', brig: '', tab: 'resumen', q: '', uid: null}); },
+  ok: () => !!SES && SES.rol === 'cliente' && esAcademica(),
+  entrar() {
+    if (!BR.ok()) return;
+    if (BR.uid !== SES.uid) { BR.reset(); BR.uid = SES.uid; }
+    BR.pintar(); BR.cargar();
+  },
+  costoRec(r, mapa) {
+    const sub = r.ings.reduce((s, l) => { const i = mapa[l.id]; return i ? s + l.c / factor(i) * netoUnidad(i) : s; }, 0), total = sub * (1 + (+r.sazonPct || 0) / 100);
+    return {porcion: total / (r.porciones || 1)};
+  },
+  async cargar() {
+    if (!BR.ok() || !sb || BR.cargando) return;
+    BR.cargando = true; BR.err = ''; if (mod === 'brigadas') BR.pintar();
+    try {
+      const emp = SES.perfil.empresa_id;
+      const [pf, fi, fp, fe, ev] = await Promise.all([traer('perfiles', 'id,email,rol,brigada', q => q.eq('empresa_id', emp)), traer('insumos'),
+        traer('productos_menu', '*', q => q.or('activo.is.null,activo.eq.true')), traer('escandallos'), EV.traerTodo(false)]);
+      BR.datos = BR.armar(pf, fi, fp, fe, ev);
+    } catch (e) { BR.err = errMsg(e); BR.datos = null; sbLog('auditoría de brigadas', e); }
+    BR.cargando = false; if (mod === 'brigadas') BR.pintar();
+  },
+  armar(pf, fi, fp, fe, ev) {
+    const usr = {}; pf.forEach(p => { usr[p.id] = p; });
+    const etiqueta = id => { const p = usr[id]; if (!p) return 'Sin asignar'; const b = String(p.brigada || '').trim(), r = rolApp(p.rol); return b || (r === 'cliente' || r === 'superadmin' ? 'Administración / Profesor' : 'Sin brigada'); };
+    const mapa = {}, insumos = fi.map(r => { const i = insDeFila(r); i.brigada = etiqueta(r.user_id); mapa[i.id] = i; return i; });
+    const escPor = {}; fe.forEach(x => { (escPor[x.producto_id] = escPor[x.producto_id] || []).push({id: x.insumo_id, c: +x.cantidad_neta || 0}); });
+    const recetas = fp.map(p => { const r = recDeFila(p, escPor[p.id] || []); r.brigada = etiqueta(p.user_id); r.costoPorc = BR.costoRec(r, mapa).porcion; r.fc = r.precioVenta ? r.costoPorc / r.precioVenta * 100 : 0; return r; });
+    const eventos = EV.armarTodo(ev).map(e => { e.brigada = etiqueta(e.userId); e.platillos.forEach(p => { p._snap = true; }); e.costo = EV_C.ev(e); return e; });   // _snap: se audita con el costo guardado, no con el catálogo del auditor
+    const nombres = new Set(); pf.forEach(p => nombres.add(etiqueta(p.id))); [...insumos, ...recetas, ...eventos].forEach(x => nombres.add(x.brigada));
+    const brigadas = [...nombres].sort((a, b) => a.localeCompare(b, 'es')), integrantes = {};
+    pf.forEach(p => { const b = etiqueta(p.id); (integrantes[b] = integrantes[b] || []).push(verUsuario(p.email)); });
+    return {insumos, recetas, eventos, brigadas, integrantes};
+  },
+  fil(arr) { return arr.filter(x => !BR.brig || x.brigada === BR.brig); },
+  resumen() {
+    const d = BR.datos, bs = d.brigadas.filter(b => !BR.brig || b === BR.brig);
+    return bs.map(b => {
+      const I = d.insumos.filter(x => x.brigada === b), R = d.recetas.filter(x => x.brigada === b), E = d.eventos.filter(x => x.brigada === b);
+      return {b, ints: d.integrantes[b] || [], ni: I.length, val: I.reduce((s, i) => s + i.stock * i.costo, 0), nr: R.length, ne: E.length, ce: E.reduce((s, e) => s + e.costo.total, 0)};
+    });
+  },
+  contenido() {   // {cols, rows}
+    const d = BR.datos, q = normNombre(BR.q), hit = n => !q || normNombre(n).includes(q);
+    if (BR.tab === 'insumos') {
+      const L = BR.fil(d.insumos).filter(i => hit(i.nombre)).sort((a, b) => a.brigada.localeCompare(b.brigada, 'es') || a.nombre.localeCompare(b.nombre, 'es'));
+      return {cols: ['Brigada', 'Insumo', 'Categoría', 'Stock', 'Costo', 'Valor en inventario', 'Estatus'], rows: L.map(i => { const s = estatus(i); return `<tr><td>${esc(i.brigada)}</td><td class="font-medium">${esc(i.nombre)}${i.sub ? ' <span class="pill y">Subreceta</span>' : ''}</td><td>${esc(i.categoria)}</td><td>${fq(i.stock, i)}</td><td>${i.costo ? money(i.costo) + ' / ' + esc(i.unidad) : '<span class="pill y">Sin costo</span>'}</td><td>${money(i.stock * i.costo)}</td><td><span class="pill ${s[1]}">${s[0]}</span></td></tr>`; }).join('')};
+    }
+    if (BR.tab === 'recetas') {
+      const L = BR.fil(d.recetas).filter(r => hit(r.nombre)).sort((a, b) => a.brigada.localeCompare(b.brigada, 'es') || a.nombre.localeCompare(b.nombre, 'es'));
+      return {cols: ['Brigada', 'Receta', 'Rinde', 'Ingredientes', 'Costo por porción', 'Precio de venta', 'Food Cost'], rows: L.map(r => `<tr><td>${esc(r.brigada)}</td><td class="font-medium">${esc(r.nombre)}<div class="text-xs text-slate-500">${esc(r.categoria)}</div></td><td>${r.porciones}</td><td>${r.ings.length}</td><td>${money(r.costoPorc)}</td><td>${money(r.precioVenta)}</td><td>${r.precioVenta ? `<span class="pill ${fcClass(r.fc)}">${r.fc.toFixed(1)}%</span>` : '—'}</td></tr>`).join('')};
+    }
+    const L = BR.fil(d.eventos).filter(e => hit(e.nombre)).sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)));
+    return {cols: ['Brigada', 'Evento', 'Fecha', 'Comensales', 'Costo total', 'Por comensal', ''], rows: L.map(e => { return `<tr><td>${esc(e.brigada)}</td><td class="font-medium">${esc(e.nombre)}<div class="text-xs text-slate-500">${e.platillos.length} platillo(s)</div></td><td>${e.fecha ? calFmt(e.fecha) : '—'}</td><td>${e.comensales}</td><td>${money(e.costo.total)}</td><td>${money(e.costo.comensal)}</td><td><button class="btn btn-s" onclick="BR.verEvento('${e.id}')">Ver detalle</button></td></tr>`; }).join('')};
+  },
+  filtrar() { const b = $('#brBody'); if (b) b.innerHTML = BR.contenido().rows || `<tr><td colspan="8" class="text-slate-500 text-center py-8">Sin registros.</td></tr>`; },
+  setBrig(i) { BR.brig = i === '' ? '' : (BR.datos.brigadas[+i] || ''); BR.pintar(); },
+  setTab(t) { BR.tab = t; BR.q = ''; BR.pintar(); },
+  ir(t, i) { BR.brig = BR.datos.brigadas[i] || ''; BR.tab = t; BR.q = ''; BR.pintar(); },
+  verEvento(id) {
+    const e = BR.datos.eventos.find(x => x.id === id); if (!e) return;
+    openModal(`<h2 class="brand text-xl font-bold">${esc(e.nombre)} <span class="pill s">${esc(e.brigada)}</span></h2><div class="mb-2"></div>${EV.detalleHtml(e)}<div class="flex justify-end mt-4"><button class="btn btn-s" onclick="closeModal()">Cerrar</button></div>`);
+  },
+  pintar() {
+    if (!BR.ok()) return;
+    const head0 = head('Auditoría de Brigadas', `${esc((SES.emp && SES.emp.plantel) || 'Plantel')} · insumos, recetas, valor de inventario y eventos de cada brigada (solo lectura).`, `<button class="btn btn-s" onclick="BR.cargar()">Actualizar</button>`);
+    if (BR.cargando && !BR.datos) return ($('#view').innerHTML = head0 + '<p class="text-slate-400">Cargando información de las brigadas…</p>');
+    if (BR.err) return ($('#view').innerHTML = head0 + `<p class="text-red-300 text-sm" role="alert">No se pudo leer la información: ${esc(BR.err)}. Revisa tu conexión y las políticas RLS de auditoría en Supabase.</p>`);
+    const d = BR.datos; if (!d) return ($('#view').innerHTML = head0 + '<p class="text-slate-400">Sin datos.</p>');
+    const val = BR.fil(d.insumos).reduce((s, i) => s + i.stock * i.costo, 0);
+    const tabs = [['resumen', 'Resumen'], ['insumos', 'Insumos'], ['recetas', 'Recetas'], ['eventos', 'Eventos']];
+    let cuerpo;
+    if (BR.tab === 'resumen') {
+      const R = BR.resumen();
+      cuerpo = table(['Brigada', 'Integrantes', 'Insumos', 'Valor de inventario', 'Recetas', 'Eventos', 'Costo en eventos', ''], R.map(x => {
+        const i = d.brigadas.indexOf(x.b);
+        return `<tr><td class="font-medium">${esc(x.b)}</td><td class="text-xs text-slate-400">${esc(x.ints.join(', ') || '—')}</td><td>${x.ni}</td><td>${money(x.val)}</td><td>${x.nr}</td><td>${x.ne}</td><td>${money(x.ce)}</td>
+          <td class="whitespace-nowrap"><button class="btn btn-s" onclick="BR.ir('insumos',${i})">Insumos</button> <button class="btn btn-s" onclick="BR.ir('recetas',${i})">Recetas</button> <button class="btn btn-s" onclick="BR.ir('eventos',${i})">Eventos</button></td></tr>`;
+      }).join('') || `<tr><td colspan="8" class="text-slate-500 text-center py-8">Aún no hay brigadas con información.</td></tr>`);
+    } else { const c = BR.contenido(); cuerpo = table(c.cols, c.rows || `<tr><td colspan="8" class="text-slate-500 text-center py-8">Sin registros.</td></tr>`, true, 'brBody'); }
+    $('#view').innerHTML = head('Auditoría de Brigadas', `${esc((SES.emp && SES.emp.plantel) || 'Plantel')} · insumos, recetas, valor de inventario y eventos de cada brigada (solo lectura).`,
+        totalChip('Valor de inventario' + (BR.brig ? ' · ' + esc(BR.brig) : ''), money(val)) + `<button class="btn btn-s" onclick="BR.cargar()">Actualizar</button>`) +
+      `<div class="panel-filtros flex flex-wrap items-end gap-3 mb-4"><div class="w-60">${field('Brigada', `<select class="inp" onchange="BR.setBrig(this.value)"><option value="">Todas las brigadas</option>${d.brigadas.map((b, i) => `<option value="${i}" ${BR.brig === b ? 'selected' : ''}>${esc(b)}</option>`).join('')}</select>`)}</div>
+        ${BR.tab !== 'resumen' ? `<div class="w-60">${field('Buscar', `<input class="inp" placeholder="Nombre" value="${esc(BR.q)}" oninput="BR.q=this.value;BR.filtrar()" autocomplete="off">`)}</div>` : ''}
+        <div class="flex flex-wrap gap-2" role="tablist">${tabs.map(([k, t]) => `<button role="tab" aria-selected="${BR.tab === k}" class="btn pilltab ${BR.tab === k ? 'btn-p' : 'btn-s'}" onclick="BR.setTab('${k}')">${t}</button>`).join('')}</div></div>` + cuerpo +
+      `<p class="text-xs text-slate-500 mt-3">Cada brigada solo puede ver su propia información; esta vista es de solo lectura para el administrador del plantel. Las brigadas se asignan en Ajustes → Alumnos, Brigadas y Accesos.</p>`;
+  },
+  htmlReporte() {
+    if (!BR.datos) return '<p>Abre primero Auditoría de Brigadas para cargar la información.</p>';
+    return docHtml('Auditoría de Brigadas', '', null, kv([['Plantel', esc((SES.emp && SES.emp.plantel) || '—')], ['Brigada', esc(BR.brig || 'Todas')]]) +
+      tp(['Brigada', 'Integrantes', 'Insumos', 'Valor de inventario', 'Recetas', 'Eventos', 'Costo en eventos'], BR.resumen().map(x => `<tr><td>${esc(x.b)}</td><td>${esc(x.ints.join(', ') || '—')}</td><td>${x.ni}</td><td>${money(x.val)}</td><td>${x.nr}</td><td>${x.ne}</td><td>${money(x.ce)}</td></tr>`).join('')), ['Profesor / Auditor', 'Vo. Bo. Plantel']);
+  }
+};
+REPORTES.brigadas = () => BR.htmlReporte();
+ETQ_IMP.brigadas = 'Imprimir Auditoría de Brigadas';
+
+/* ============ 25. CUPO DE USUARIOS (RPC cupo_usuarios) ============ */
+// Normaliza la respuesta de cupo_usuarios(): acepta fila / objeto / número (= cupo disponible) / booleano. Devuelve {usados, limite, disp, ok} o null si no se entiende.
+function cupoNorm(d) {
+  if (Array.isArray(d)) d = d[0];
+  if (d == null) return null;
+  if (typeof d === 'boolean') return {usados: null, limite: null, disp: null, ok: d};
+  if (typeof d === 'number') return {usados: null, limite: null, disp: d, ok: d > 0};
+  if (typeof d !== 'object') return null;
+  const pick = (...ks) => { for (const k of ks) if (d[k] != null && d[k] !== '' && !isNaN(+d[k])) return +d[k]; return null; };
+  const limite = pick('limite', 'limite_usuarios', 'max', 'maximo'), usados = pick('usados', 'en_uso', 'usuarios', 'total', 'actuales', 'activos');
+  let disp = pick('disponibles', 'disponible', 'cupo', 'cupo_usuarios', 'restante', 'restantes', 'libres');
+  if (disp == null && limite != null && usados != null) disp = limite - usados;
+  let ok = ['ok', 'permitido', 'puede_crear', 'hay_cupo'].map(k => d[k]).find(v => typeof v === 'boolean');
+  if (ok === undefined) ok = disp != null ? disp > 0 : (limite == null && usados != null ? true : null);
+  return ok === null ? null : {usados, limite, disp, ok};
+}
+
+// Ayuda / Manual: entradas de los módulos nuevos (justo después de Recetas y Rendimiento)
+(() => {
+  const k = AYUDA.findIndex(a => a.k === 'recetas');
+  AYUDA.splice(k + 1, 0,
+    {k: 'eventos', btn: 'Nuevo evento', sirve: 'Planea banquetes y servicios especiales: platillos, porciones por comensal, costos y lista de compras.',
+     campos: [['Nombre, fecha y comensales', 'datos del evento; los comensales definen las porciones.'], ['Platillo desde receta', 'copia ingredientes y sazón de una receta de tu catálogo.'], ['Platillo al vuelo', 'un platillo nuevo solo para este evento; sus insumos pueden ser del catálogo o libres.'], ['Insumo temporal', 'compra especial solo para el evento (flores, hielo, desechables…); no entra al inventario.'], ['Sazón %', 'porcentaje de condimentos sobre el costo de ingredientes.']],
+     flujo: ['Entra a Eventos y pulsa «Nuevo evento».', 'Captura nombre, fecha y comensales.', 'Agrega platillos desde receta o al vuelo y ajusta porciones y sazón.', 'Agrega insumos temporales si hace falta.', 'Pulsa «Congelar costos» cuando quieras fijar el costo de catálogo (cotización cerrada) o déjalo vivo para que siga al catálogo.', 'Si cambian los comensales, pulsa «Recalcular porciones / sazón».', 'Abre «Lista de compras» para ver qué comprar (con o sin descontar inventario), cópiala o imprímela.', 'Pulsa «Guardar evento».'],
+     res: 'El evento queda guardado con su costo total y costo por comensal. No descuenta inventario.',
+     nota: 'En licencia académica, los alumnos de cada brigada también ven costos dentro de Eventos; cada brigada solo ve sus propios eventos.'},
+    {k: 'brigadas', btn: 'Actualizar', sirve: 'Para el profesor / administrador del plantel: audita insumos, recetas, valor de inventario y eventos de cada brigada, en solo lectura.',
+     campos: [['Brigada', 'filtra por brigada o consulta todas.'], ['Resumen', 'integrantes, insumos, valor de inventario, recetas, eventos y costo en eventos por brigada.'], ['Insumos / Recetas / Eventos', 'detalle de cada rubro; en Eventos usa «Ver detalle».']],
+     flujo: ['Entra a Auditoría de Brigadas.', 'Revisa el Resumen y elige una brigada.', 'Abre las pestañas Insumos, Recetas o Eventos para auditar el detalle.', 'Imprime el reporte con el botón superior.'],
+     res: 'Ves la información de todas las brigadas sin poder modificarla.',
+     nota: 'Las brigadas se asignan por usuario en Ajustes → Alumnos, Brigadas y Accesos.'});
+  AYUDA_GRP.eventos = 'pro'; AYUDA_GRP.brigadas = 'pro';
+})();
 
 /* ============ 18. ARRANQUE ============ */
 iniciarApp();
